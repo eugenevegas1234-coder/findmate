@@ -1,0 +1,24 @@
+﻿# Flutter
+dating_app_flutter/build/
+dating_app_flutter/.dart_tool/
+dating_app_flutter/.flutter-plugins
+dating_app_flutter/.flutter-plugins-dependencies
+dating_app_flutter/.packages
+
+# Python
+dating_server/__pycache__/
+dating_server/venv/
+*.pyc
+.env
+
+# IDE
+.idea/
+.vscode/
+*.iml
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Old project
+dating-app/
