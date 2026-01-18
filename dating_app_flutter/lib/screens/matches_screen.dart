@@ -1,5 +1,6 @@
 ﻿import 'package:flutter/material.dart';
 import '../services/api_service.dart';
+import 'chat_screen.dart';
 
 class MatchesScreen extends StatefulWidget {
   const MatchesScreen({super.key});
@@ -32,6 +33,19 @@ class _MatchesScreenState extends State<MatchesScreen> {
         _isLoading = false;
       });
     }
+  }
+
+  void _openChat(int userId, String userName, String? userPhoto) {
+    Navigator.push(
+      context,
+      MaterialPageRoute(
+        builder: (context) => ChatScreen(
+          userId: userId,
+          userName: userName,
+          userPhoto: userPhoto,
+        ),
+      ),
+    ).then((_) => _loadMatches()); // Обновляем после возврата из чата
   }
 
   @override
@@ -90,36 +104,77 @@ class _MatchesScreenState extends State<MatchesScreen> {
         itemCount: _matches.length,
         itemBuilder: (context, index) {
           final match = _matches[index];
-          final user = match['user'] ?? match;
-          
+          final lastMessage = match['last_message'];
+          // Исправлено: используем 'photo' вместо 'photo_url'
+          final hasPhoto = match['photo'] != null;
+
           return Card(
             margin: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
             child: ListTile(
+              onTap: () => _openChat(
+                match['id'],
+                match['name'] ?? 'Пользователь',
+                match['photo'], // Исправлено
+              ),
               leading: CircleAvatar(
                 radius: 30,
                 backgroundColor: Colors.pink[100],
-                child: Text(
-                  (user['name'] ?? 'U')[0].toUpperCase(),
-                  style: const TextStyle(fontSize: 24, color: Colors.pink),
-                ),
+                backgroundImage: hasPhoto
+                    ? NetworkImage(apiService.getFullImageUrl(match['photo'])) // Исправлено
+                    : null,
+                child: !hasPhoto
+                    ? Text(
+                        (match['name'] ?? 'U')[0].toUpperCase(),
+                        style: const TextStyle(fontSize: 24, color: Colors.pink),
+                      )
+                    : null,
               ),
-              title: Text(
-                user['name'] ?? 'Пользователь',
-                style: const TextStyle(fontWeight: FontWeight.bold),
+              title: Row(
+                children: [
+                  Expanded(
+                    child: Text(
+                      match['name'] ?? 'Пользователь',
+                      style: const TextStyle(fontWeight: FontWeight.bold),
+                    ),
+                  ),
+                  // Индикатор онлайн
+                  if (match['online'] == true)
+                    Container(
+                      width: 10,
+                      height: 10,
+                      decoration: const BoxDecoration(
+                        color: Colors.green,
+                        shape: BoxShape.circle,
+                      ),
+                    ),
+                ],
               ),
-              subtitle: Text(
-                user['bio'] ?? 'Нет описания',
-                maxLines: 1,
-                overflow: TextOverflow.ellipsis,
+              subtitle: Row(
+                children: [
+                  if (lastMessage != null && lastMessage['image_url'] != null)
+                    const Padding(
+                      padding: EdgeInsets.only(right: 4),
+                      child: Icon(Icons.photo, size: 16, color: Colors.grey),
+                    ),
+                  Expanded(
+                    child: Text(
+                      lastMessage != null
+                          ? (lastMessage['image_url'] != null &&
+                                  (lastMessage['text'] == null ||
+                                      lastMessage['text'].isEmpty))
+                              ? 'Фото'
+                              : lastMessage['text'] ?? ''
+                          : 'Нажмите, чтобы начать чат',
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: TextStyle(
+                        color: lastMessage != null ? Colors.black54 : Colors.grey,
+                      ),
+                    ),
+                  ),
+                ],
               ),
-              trailing: IconButton(
-                icon: const Icon(Icons.chat, color: Colors.pink),
-                onPressed: () {
-                  ScaffoldMessenger.of(context).showSnackBar(
-                    const SnackBar(content: Text('Чат скоро будет!')),
-                  );
-                },
-              ),
+              trailing: const Icon(Icons.chat_bubble_outline, color: Colors.pink),
             ),
           );
         },

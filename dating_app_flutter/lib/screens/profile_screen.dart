@@ -1,4 +1,6 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/foundation.dart' show kIsWeb;
+import 'package:image_picker/image_picker.dart';
 import '../services/api_service.dart';
 
 class ProfileScreen extends StatefulWidget {
@@ -9,8 +11,10 @@ class ProfileScreen extends StatefulWidget {
 }
 
 class _ProfileScreenState extends State<ProfileScreen> {
-  Map<String, dynamic>? _profile;
+  Map<String, dynamic> _profile = {};
   bool _isLoading = true;
+  bool _isUploading = false;
+  final _picker = ImagePicker();
 
   @override
   void initState() {
@@ -26,34 +30,168 @@ class _ProfileScreenState extends State<ProfileScreen> {
         _isLoading = false;
       });
     } catch (e) {
+      setState(() => _isLoading = false);
+    }
+  }
+
+  Future<void> _pickAndUploadPhoto() async {
+    try {
+      final XFile? pickedFile = await _picker.pickImage(
+        source: ImageSource.gallery,
+        maxWidth: 800,
+        maxHeight: 800,
+        imageQuality: 85,
+      );
+
+      if (pickedFile == null) {
+        print('No image selected');
+        return;
+      }
+
+      setState(() => _isUploading = true);
+
+      // Читаем файл как bytes (работает и на веб, и на мобильных)
+      final bytes = await pickedFile.readAsBytes();
+      final filename = pickedFile.name;
+
+      final photoUrl = await apiService.uploadProfilePhotoBytes(bytes, filename);
+
       setState(() {
-        _isLoading = false;
+        _profile['photo'] = photoUrl;
+        _isUploading = false;
       });
+
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('Фото успешно загружено!'),
+          backgroundColor: Colors.green,
+        ),
+      );
+    } catch (e) {
+      print('Error picking/uploading photo: $e');
+      setState(() => _isUploading = false);
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('Ошибка: $e'),
+          backgroundColor: Colors.red,
+        ),
+      );
     }
   }
 
   void _editProfile() {
-    Navigator.push(
-      context,
-      MaterialPageRoute(
-        builder: (context) => EditProfileScreen(
-          profile: _profile!,
-          onSave: () => _loadProfile(),
+    final nameController = TextEditingController(text: _profile['name'] ?? '');
+    final ageController = TextEditingController(text: _profile['age']?.toString() ?? '');
+    final cityController = TextEditingController(text: _profile['city'] ?? '');
+    final bioController = TextEditingController(text: _profile['bio'] ?? '');
+
+    showDialog(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text('Редактировать профиль'),
+        content: SingleChildScrollView(
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              TextField(
+                controller: nameController,
+                decoration: const InputDecoration(labelText: 'Имя'),
+              ),
+              const SizedBox(height: 8),
+              TextField(
+                controller: ageController,
+                decoration: const InputDecoration(labelText: 'Возраст'),
+                keyboardType: TextInputType.number,
+              ),
+              const SizedBox(height: 8),
+              TextField(
+                controller: cityController,
+                decoration: const InputDecoration(labelText: 'Город'),
+              ),
+              const SizedBox(height: 8),
+              TextField(
+                controller: bioController,
+                decoration: const InputDecoration(labelText: 'О себе'),
+                maxLines: 3,
+              ),
+            ],
+          ),
         ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context),
+            child: const Text('Отмена'),
+          ),
+          ElevatedButton(
+            onPressed: () async {
+              final data = {
+                'name': nameController.text,
+                'age': int.tryParse(ageController.text),
+                'city': cityController.text,
+                'bio': bioController.text,
+              };
+              await apiService.updateProfile(data);
+              Navigator.pop(context);
+              _loadProfile();
+            },
+            child: const Text('Сохранить'),
+          ),
+        ],
       ),
     );
   }
 
   void _editInterests() {
-    Navigator.push(
-      context,
-      MaterialPageRoute(
-        builder: (context) => EditInterestsScreen(
-          currentInterests: List<String>.from(_profile!['interests'] ?? []),
-          onSave: (newInterests) async {
-            await apiService.updateProfile({'interests': newInterests});
-            _loadProfile();
-          },
+    final allInterests = [
+      'Музыка', 'Кино', 'Спорт', 'Путешествия', 'Книги',
+      'Игры', 'Кулинария', 'Фотография', 'Танцы', 'Искусство',
+      'Технологии', 'Природа', 'Йога', 'Мода', 'Наука'
+    ];
+    
+    List<String> selected = List<String>.from(_profile['interests'] ?? []);
+
+    showDialog(
+      context: context,
+      builder: (context) => StatefulBuilder(
+        builder: (context, setDialogState) => AlertDialog(
+          title: const Text('Мои интересы'),
+          content: SizedBox(
+            width: double.maxFinite,
+            child: Wrap(
+              spacing: 8,
+              runSpacing: 8,
+              children: allInterests.map((interest) {
+                final isSelected = selected.contains(interest);
+                return FilterChip(
+                  label: Text(interest),
+                  selected: isSelected,
+                  onSelected: (value) {
+                    setDialogState(() {
+                      if (value) {
+                        selected.add(interest);
+                      } else {
+                        selected.remove(interest);
+                      }
+                    });
+                  },
+                );
+              }).toList(),
+            ),
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(context),
+              child: const Text('Отмена'),
+            ),
+            ElevatedButton(
+              onPressed: () async {
+                await apiService.updateProfile({'interests': selected});
+                Navigator.pop(context);
+                _loadProfile();
+              },
+              child: const Text('Сохранить'),
+            ),
+          ],
         ),
       ),
     );
@@ -65,355 +203,146 @@ class _ProfileScreenState extends State<ProfileScreen> {
       return const Center(child: CircularProgressIndicator());
     }
 
-    if (_profile == null || _profile!.isEmpty) {
-      return const Center(child: Text('Ошибка загрузки профиля'));
-    }
-
-    final interests = List<String>.from(_profile!['interests'] ?? []);
+    final hasPhoto = _profile['photo'] != null;
 
     return SingleChildScrollView(
-      padding: const EdgeInsets.all(20),
+      padding: const EdgeInsets.all(16),
       child: Column(
         children: [
-          const CircleAvatar(
-            radius: 60,
-            backgroundColor: Colors.pink,
-            child: Icon(Icons.person, size: 60, color: Colors.white),
-          ),
-          const SizedBox(height: 20),
-          Text(
-            '${_profile!['name']}, ${_profile!['age'] ?? '?'}',
-            style: const TextStyle(fontSize: 28, fontWeight: FontWeight.bold),
-          ),
-          const SizedBox(height: 10),
-          Text(
-            _profile!['email'] ?? '',
-            style: TextStyle(fontSize: 16, color: Colors.grey[600]),
-          ),
-          const SizedBox(height: 20),
-          if (_profile!['city'] != null || _profile!['gender'] != null)
-            Container(
-              padding: const EdgeInsets.all(15),
-              decoration: BoxDecoration(
-                color: Colors.grey[100],
-                borderRadius: BorderRadius.circular(12),
-              ),
-              child: Row(
-                mainAxisAlignment: MainAxisAlignment.spaceEvenly,
-                children: [
-                  if (_profile!['city'] != null)
-                    Row(
-                      children: [
-                        const Icon(Icons.location_on, color: Colors.pink),
-                        const SizedBox(width: 5),
-                        Text(_profile!['city']),
-                      ],
+          // Аватар с возможностью загрузки фото
+          GestureDetector(
+            onTap: _isUploading ? null : _pickAndUploadPhoto,
+            child: Stack(
+              children: [
+                CircleAvatar(
+                  radius: 60,
+                  backgroundColor: Colors.pink[100],
+                  backgroundImage: hasPhoto
+                      ? NetworkImage(apiService.getFullImageUrl(_profile['photo']))
+                      : null,
+                  child: _isUploading
+                      ? const CircularProgressIndicator(color: Colors.white)
+                      : !hasPhoto
+                          ? const Icon(Icons.person, size: 60, color: Colors.pink)
+                          : null,
+                ),
+                Positioned(
+                  bottom: 0,
+                  right: 0,
+                  child: Container(
+                    padding: const EdgeInsets.all(8),
+                    decoration: BoxDecoration(
+                      color: Colors.pink,
+                      shape: BoxShape.circle,
+                      border: Border.all(color: Colors.white, width: 2),
                     ),
-                  if (_profile!['gender'] != null)
-                    Row(
-                      children: [
-                        const Icon(Icons.person_outline, color: Colors.pink),
-                        const SizedBox(width: 5),
-                        Text(_profile!['gender']),
-                      ],
+                    child: const Icon(
+                      Icons.camera_alt,
+                      color: Colors.white,
+                      size: 20,
                     ),
-                ],
-              ),
+                  ),
+                ),
+              ],
             ),
-          const SizedBox(height: 20),
-          if (_profile!['bio'] != null && _profile!['bio'].toString().isNotEmpty)
-            Container(
-              width: double.infinity,
-              padding: const EdgeInsets.all(15),
-              decoration: BoxDecoration(
-                color: Colors.grey[100],
-                borderRadius: BorderRadius.circular(12),
-              ),
+          ),
+          
+          const SizedBox(height: 8),
+          Text(
+            'Нажмите чтобы изменить фото',
+            style: TextStyle(color: Colors.grey[600], fontSize: 12),
+          ),
+
+          const SizedBox(height: 16),
+
+          // Имя и возраст
+          Text(
+            '${_profile['name'] ?? 'Имя не указано'}${_profile['age'] != null ? ', ${_profile['age']}' : ''}',
+            style: const TextStyle(fontSize: 24, fontWeight: FontWeight.bold),
+          ),
+
+          if (_profile['city'] != null) ...[
+            const SizedBox(height: 4),
+            Row(
+              mainAxisAlignment: MainAxisAlignment.center,
+              children: [
+                const Icon(Icons.location_on, size: 16, color: Colors.grey),
+                Text(_profile['city'], style: const TextStyle(color: Colors.grey)),
+              ],
+            ),
+          ],
+
+          const SizedBox(height: 24),
+
+          // Кнопка редактирования
+          ElevatedButton.icon(
+            onPressed: _editProfile,
+            icon: const Icon(Icons.edit),
+            label: const Text('Редактировать профиль'),
+            style: ElevatedButton.styleFrom(
+              minimumSize: const Size(double.infinity, 48),
+            ),
+          ),
+
+          const SizedBox(height: 24),
+
+          // О себе
+          Card(
+            child: Padding(
+              padding: const EdgeInsets.all(16),
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  const Text('О себе', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 16)),
+                  const Text('О себе', style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
                   const SizedBox(height: 8),
-                  Text(_profile!['bio']),
+                  Text(
+                    _profile['bio'] ?? 'Расскажите о себе...',
+                    style: TextStyle(
+                      color: _profile['bio'] != null ? Colors.black87 : Colors.grey,
+                    ),
+                  ),
                 ],
               ),
             ),
-          const SizedBox(height: 20),
-          Container(
-            width: double.infinity,
-            padding: const EdgeInsets.all(15),
-            decoration: BoxDecoration(
-              color: Colors.grey[100],
-              borderRadius: BorderRadius.circular(12),
-            ),
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Row(
-                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                  children: [
-                    const Text('Интересы', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 16)),
-                    IconButton(
-                      icon: const Icon(Icons.edit, size: 20, color: Colors.pink),
-                      onPressed: _editInterests,
-                    ),
-                  ],
-                ),
-                const SizedBox(height: 10),
-                if (interests.isEmpty)
-                  Text('Нет интересов', style: TextStyle(color: Colors.grey[500]))
-                else
-                  Wrap(
-                    spacing: 8,
-                    runSpacing: 8,
-                    children: interests.map((interest) {
-                      return Container(
-                        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
-                        decoration: BoxDecoration(
-                          gradient: const LinearGradient(colors: [Colors.pink, Colors.orange]),
-                          borderRadius: BorderRadius.circular(20),
-                        ),
-                        child: Text(
-                          interest,
-                          style: const TextStyle(color: Colors.white, fontWeight: FontWeight.w500),
-                        ),
-                      );
-                    }).toList(),
-                  ),
-              ],
-            ),
           ),
-          const SizedBox(height: 30),
-          SizedBox(
-            width: double.infinity,
-            child: ElevatedButton.icon(
-              onPressed: _editProfile,
-              icon: const Icon(Icons.edit),
-              label: const Text('Редактировать профиль'),
-              style: ElevatedButton.styleFrom(
-                backgroundColor: Colors.pink,
-                foregroundColor: Colors.white,
-                padding: const EdgeInsets.symmetric(vertical: 15),
-                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
-              ),
-            ),
-          ),
-        ],
-      ),
-    );
-  }
-}
 
-class EditProfileScreen extends StatefulWidget {
-  final Map<String, dynamic> profile;
-  final VoidCallback onSave;
+          const SizedBox(height: 16),
 
-  const EditProfileScreen({super.key, required this.profile, required this.onSave});
-
-  @override
-  State<EditProfileScreen> createState() => _EditProfileScreenState();
-}
-
-class _EditProfileScreenState extends State<EditProfileScreen> {
-  late TextEditingController _nameController;
-  late TextEditingController _ageController;
-  late TextEditingController _bioController;
-  late TextEditingController _cityController;
-  String? _gender;
-
-  @override
-  void initState() {
-    super.initState();
-    _nameController = TextEditingController(text: widget.profile['name']);
-    _ageController = TextEditingController(text: widget.profile['age']?.toString() ?? '');
-    _bioController = TextEditingController(text: widget.profile['bio'] ?? '');
-    _cityController = TextEditingController(text: widget.profile['city'] ?? '');
-    _gender = widget.profile['gender'];
-  }
-
-  Future<void> _save() async {
-    try {
-      await apiService.updateProfile({
-        'name': _nameController.text,
-        'age': int.tryParse(_ageController.text),
-        'bio': _bioController.text,
-        'city': _cityController.text,
-        'gender': _gender,
-      });
-      widget.onSave();
-      Navigator.pop(context);
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Профиль сохранён!'), backgroundColor: Colors.green),
-      );
-    } catch (e) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Ошибка сохранения'), backgroundColor: Colors.red),
-      );
-    }
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    return Scaffold(
-      appBar: AppBar(
-        title: const Text('Редактировать'),
-        backgroundColor: Colors.pink,
-        foregroundColor: Colors.white,
-        actions: [IconButton(icon: const Icon(Icons.check), onPressed: _save)],
-      ),
-      body: SingleChildScrollView(
-        padding: const EdgeInsets.all(20),
-        child: Column(
-          children: [
-            TextField(
-              controller: _nameController,
-              decoration: const InputDecoration(labelText: 'Имя', border: OutlineInputBorder()),
-            ),
-            const SizedBox(height: 15),
-            TextField(
-              controller: _ageController,
-              decoration: const InputDecoration(labelText: 'Возраст', border: OutlineInputBorder()),
-              keyboardType: TextInputType.number,
-            ),
-            const SizedBox(height: 15),
-            TextField(
-              controller: _cityController,
-              decoration: const InputDecoration(labelText: 'Город', border: OutlineInputBorder()),
-            ),
-            const SizedBox(height: 15),
-            DropdownButtonFormField<String>(
-              value: _gender,
-              decoration: const InputDecoration(labelText: 'Пол', border: OutlineInputBorder()),
-              items: const [
-                DropdownMenuItem(value: 'Мужской', child: Text('Мужской')),
-                DropdownMenuItem(value: 'Женский', child: Text('Женский')),
-              ],
-              onChanged: (value) => setState(() => _gender = value),
-            ),
-            const SizedBox(height: 15),
-            TextField(
-              controller: _bioController,
-              decoration: const InputDecoration(labelText: 'О себе', border: OutlineInputBorder()),
-              maxLines: 4,
-            ),
-            const SizedBox(height: 30),
-            SizedBox(
-              width: double.infinity,
-              child: ElevatedButton(
-                onPressed: _save,
-                style: ElevatedButton.styleFrom(
-                  backgroundColor: Colors.pink,
-                  foregroundColor: Colors.white,
-                  padding: const EdgeInsets.symmetric(vertical: 15),
-                ),
-                child: const Text('Сохранить'),
-              ),
-            ),
-          ],
-        ),
-      ),
-    );
-  }
-}
-
-class EditInterestsScreen extends StatefulWidget {
-  final List<String> currentInterests;
-  final Function(List<String>) onSave;
-
-  const EditInterestsScreen({super.key, required this.currentInterests, required this.onSave});
-
-  @override
-  State<EditInterestsScreen> createState() => _EditInterestsScreenState();
-}
-
-class _EditInterestsScreenState extends State<EditInterestsScreen> {
-  final List<String> _allInterests = [
-    'Музыка', 'Кино', 'Спорт', 'Путешествия', 'Фотография',
-    'Кулинария', 'Искусство', 'Танцы', 'Йога', 'Книги',
-    'Игры', 'Технологии', 'Природа', 'Животные', 'Мода',
-    'Программирование', 'Геймеры', 'Фитнес', 'Медитация', 'Бизнес',
-  ];
-
-  late List<String> _selectedInterests;
-
-  @override
-  void initState() {
-    super.initState();
-    _selectedInterests = List.from(widget.currentInterests);
-  }
-
-  void _toggleInterest(String interest) {
-    setState(() {
-      if (_selectedInterests.contains(interest)) {
-        _selectedInterests.remove(interest);
-      } else if (_selectedInterests.length < 10) {
-        _selectedInterests.add(interest);
-      }
-    });
-  }
-
-  void _save() {
-    widget.onSave(_selectedInterests);
-    Navigator.pop(context);
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    return Scaffold(
-      appBar: AppBar(
-        title: const Text('Мои интересы'),
-        backgroundColor: Colors.pink,
-        foregroundColor: Colors.white,
-        actions: [IconButton(icon: const Icon(Icons.check), onPressed: _save)],
-      ),
-      body: Column(
-        children: [
-          Padding(
-            padding: const EdgeInsets.all(16),
-            child: Text('Выбрано: ${_selectedInterests.length}/10', style: const TextStyle(fontSize: 16)),
-          ),
-          Expanded(
+          // Интересы
+          Card(
             child: Padding(
-              padding: const EdgeInsets.symmetric(horizontal: 16),
-              child: Wrap(
-                spacing: 10,
-                runSpacing: 10,
-                children: _allInterests.map((interest) {
-                  final isSelected = _selectedInterests.contains(interest);
-                  return GestureDetector(
-                    onTap: () => _toggleInterest(interest),
-                    child: Container(
-                      padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 12),
-                      decoration: BoxDecoration(
-                        gradient: isSelected ? const LinearGradient(colors: [Colors.pink, Colors.orange]) : null,
-                        color: isSelected ? null : Colors.grey[200],
-                        borderRadius: BorderRadius.circular(25),
+              padding: const EdgeInsets.all(16),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Row(
+                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                    children: [
+                      const Text('Интересы', style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
+                      TextButton(
+                        onPressed: _editInterests,
+                        child: const Text('Изменить'),
                       ),
-                      child: Text(
-                        interest,
-                        style: TextStyle(
-                          color: isSelected ? Colors.white : Colors.black87,
-                          fontWeight: isSelected ? FontWeight.bold : FontWeight.normal,
-                        ),
-                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 8),
+                  if (_profile['interests'] != null && (_profile['interests'] as List).isNotEmpty)
+                    Wrap(
+                      spacing: 8,
+                      runSpacing: 8,
+                      children: (_profile['interests'] as List).map((interest) {
+                        return Chip(
+                          label: Text(interest),
+                          backgroundColor: Colors.pink[50],
+                        );
+                      }).toList(),
+                    )
+                  else
+                    const Text(
+                      'Добавьте интересы чтобы находить похожих людей',
+                      style: TextStyle(color: Colors.grey),
                     ),
-                  );
-                }).toList(),
-              ),
-            ),
-          ),
-          Padding(
-            padding: const EdgeInsets.all(20),
-            child: SizedBox(
-              width: double.infinity,
-              child: ElevatedButton(
-                onPressed: _save,
-                style: ElevatedButton.styleFrom(
-                  backgroundColor: Colors.pink,
-                  foregroundColor: Colors.white,
-                  padding: const EdgeInsets.symmetric(vertical: 15),
-                ),
-                child: const Text('Сохранить интересы'),
+                ],
               ),
             ),
           ),

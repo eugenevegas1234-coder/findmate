@@ -37,34 +37,28 @@ class _DiscoverScreenState extends State<DiscoverScreen> {
     }
   }
 
-Future<void> _like() async {
-  if (_currentIndex < _profiles.length) {
-    final profile = _profiles[_currentIndex];
-    final userId = profile['id'];
+  Future<void> _like() async {
+    if (_currentIndex < _profiles.length) {
+      final profile = _profiles[_currentIndex];
+      final userId = profile['id'];
 
-    try {
-      final result = await apiService.likeUser(userId);
-      
-      // Отладка - смотрим что вернул сервер
-      print('=== LIKE RESPONSE ===');
-      print(result);
-      print('is_match: ${result['is_match']}');
-      print('=====================');
+      try {
+        final result = await apiService.likeUser(userId);
 
-      if (result['is_match'] == true && mounted) {
-        print('SHOWING MATCH DIALOG!');
-        _showMatchDialog(profile);
+        if (result['is_match'] == true && mounted) {
+          _showMatchDialog(profile);
+        }
+      } catch (e) {
+        print('Like error: $e');
       }
-    } catch (e) {
-      print('Like error: $e');
+
+      _nextProfile();
     }
-
-    _nextProfile();
   }
-}
-
 
   void _showMatchDialog(dynamic profile) {
+    final hasPhoto = profile['photo'] != null;
+    
     showDialog(
       context: context,
       barrierDismissible: false,
@@ -86,6 +80,18 @@ Future<void> _like() async {
               const Text(
                 '🎉',
                 style: TextStyle(fontSize: 60),
+              ),
+              const SizedBox(height: 16),
+              // Фото в диалоге матча
+              CircleAvatar(
+                radius: 50,
+                backgroundColor: Colors.white24,
+                backgroundImage: hasPhoto
+                    ? NetworkImage(apiService.getFullImageUrl(profile['photo']))
+                    : null,
+                child: !hasPhoto
+                    ? const Icon(Icons.person, size: 50, color: Colors.white)
+                    : null,
               ),
               const SizedBox(height: 16),
               const Text(
@@ -240,6 +246,7 @@ Future<void> _like() async {
     final matchScore = profile['match_score'] ?? 0;
     final totalInterests = allInterests.length;
     final matchPercent = totalInterests > 0 ? (matchScore / totalInterests * 100).round() : 0;
+    final hasPhoto = profile['photo'] != null;
 
     return Padding(
       padding: const EdgeInsets.all(16),
@@ -256,15 +263,11 @@ Future<void> _like() async {
                   ..rotateZ(_rotation),
                 child: Stack(
                   children: [
+                    // Карточка с фото на фоне
                     Container(
                       width: double.infinity,
                       decoration: BoxDecoration(
                         borderRadius: BorderRadius.circular(20),
-                        gradient: const LinearGradient(
-                          begin: Alignment.topCenter,
-                          end: Alignment.bottomCenter,
-                          colors: [Colors.pink, Colors.deepOrange],
-                        ),
                         boxShadow: [
                           BoxShadow(
                             color: Colors.pink.withOpacity(0.3),
@@ -273,113 +276,190 @@ Future<void> _like() async {
                           ),
                         ],
                       ),
-                      child: Padding(
-                        padding: const EdgeInsets.all(20),
-                        child: Column(
-                          crossAxisAlignment: CrossAxisAlignment.start,
+                      child: ClipRRect(
+                        borderRadius: BorderRadius.circular(20),
+                        child: Stack(
+                          fit: StackFit.expand,
                           children: [
-                            Row(
-                              children: [
-                                const CircleAvatar(
-                                  radius: 40,
-                                  backgroundColor: Colors.white24,
-                                  child: Icon(Icons.person, size: 40, color: Colors.white),
-                                ),
-                                const SizedBox(width: 16),
-                                Expanded(
-                                  child: Column(
-                                    crossAxisAlignment: CrossAxisAlignment.start,
-                                    children: [
-                                      Text(
-                                        '${profile['name']}, ${profile['age'] ?? '?'}',
-                                        style: const TextStyle(
-                                          fontSize: 26,
-                                          fontWeight: FontWeight.bold,
-                                          color: Colors.white,
-                                        ),
+                            // Фото или градиент
+                            if (hasPhoto)
+                              Image.network(
+                                apiService.getFullImageUrl(profile['photo']),
+                                fit: BoxFit.cover,
+                                errorBuilder: (context, error, stack) {
+                                  return Container(
+                                    decoration: const BoxDecoration(
+                                      gradient: LinearGradient(
+                                        begin: Alignment.topCenter,
+                                        end: Alignment.bottomCenter,
+                                        colors: [Colors.pink, Colors.deepOrange],
                                       ),
-                                      if (profile['city'] != null)
-                                        Row(
-                                          children: [
-                                            const Icon(Icons.location_on, size: 16, color: Colors.white70),
-                                            const SizedBox(width: 4),
-                                            Text(profile['city'], style: const TextStyle(color: Colors.white70)),
-                                          ],
-                                        ),
+                                    ),
+                                    child: const Center(
+                                      child: Icon(Icons.person, size: 100, color: Colors.white54),
+                                    ),
+                                  );
+                                },
+                              )
+                            else
+                              Container(
+                                decoration: const BoxDecoration(
+                                  gradient: LinearGradient(
+                                    begin: Alignment.topCenter,
+                                    end: Alignment.bottomCenter,
+                                    colors: [Colors.pink, Colors.deepOrange],
+                                  ),
+                                ),
+                                child: const Center(
+                                  child: Icon(Icons.person, size: 100, color: Colors.white54),
+                                ),
+                              ),
+                            
+                            // Затемнение снизу для текста
+                            Positioned(
+                              bottom: 0,
+                              left: 0,
+                              right: 0,
+                              child: Container(
+                                height: 250,
+                                decoration: BoxDecoration(
+                                  gradient: LinearGradient(
+                                    begin: Alignment.topCenter,
+                                    end: Alignment.bottomCenter,
+                                    colors: [
+                                      Colors.transparent,
+                                      Colors.black.withOpacity(0.8),
                                     ],
                                   ),
                                 ),
-                                Container(
-                                  padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
-                                  decoration: BoxDecoration(
-                                    color: Colors.black26,
-                                    borderRadius: BorderRadius.circular(10),
-                                  ),
-                                  child: Text(
-                                    '${_currentIndex + 1}/${_profiles.length}',
-                                    style: const TextStyle(color: Colors.white),
-                                  ),
+                              ),
+                            ),
+                            
+                            // Информация о пользователе
+                            Positioned(
+                              bottom: 0,
+                              left: 0,
+                              right: 0,
+                              child: Padding(
+                                padding: const EdgeInsets.all(20),
+                                child: Column(
+                                  crossAxisAlignment: CrossAxisAlignment.start,
+                                  children: [
+                                    // Имя и возраст
+                                    Row(
+                                      children: [
+                                        Expanded(
+                                          child: Text(
+                                            '${profile['name']}, ${profile['age'] ?? '?'}',
+                                            style: const TextStyle(
+                                              fontSize: 28,
+                                              fontWeight: FontWeight.bold,
+                                              color: Colors.white,
+                                            ),
+                                          ),
+                                        ),
+                                        // Счётчик
+                                        Container(
+                                          padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
+                                          decoration: BoxDecoration(
+                                            color: Colors.black26,
+                                            borderRadius: BorderRadius.circular(10),
+                                          ),
+                                          child: Text(
+                                            '${_currentIndex + 1}/${_profiles.length}',
+                                            style: const TextStyle(color: Colors.white),
+                                          ),
+                                        ),
+                                      ],
+                                    ),
+                                    
+                                    // Город
+                                    if (profile['city'] != null) ...[
+                                      const SizedBox(height: 4),
+                                      Row(
+                                        children: [
+                                          const Icon(Icons.location_on, size: 16, color: Colors.white70),
+                                          const SizedBox(width: 4),
+                                          Text(
+                                            profile['city'],
+                                            style: const TextStyle(color: Colors.white70, fontSize: 16),
+                                          ),
+                                        ],
+                                      ),
+                                    ],
+                                    
+                                    const SizedBox(height: 12),
+                                    
+                                    // Процент совпадения
+                                    Container(
+                                      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+                                      decoration: BoxDecoration(
+                                        color: Colors.pink,
+                                        borderRadius: BorderRadius.circular(20),
+                                      ),
+                                      child: Row(
+                                        mainAxisSize: MainAxisSize.min,
+                                        children: [
+                                          const Icon(Icons.favorite, color: Colors.white, size: 16),
+                                          const SizedBox(width: 6),
+                                          Text(
+                                            '$matchPercent% совпадение',
+                                            style: const TextStyle(
+                                              color: Colors.white,
+                                              fontWeight: FontWeight.bold,
+                                            ),
+                                          ),
+                                        ],
+                                      ),
+                                    ),
+                                    
+                                    // Описание
+                                    if (profile['bio'] != null && profile['bio'].toString().isNotEmpty) ...[
+                                      const SizedBox(height: 12),
+                                      Text(
+                                        profile['bio'],
+                                        style: const TextStyle(color: Colors.white, fontSize: 14),
+                                        maxLines: 2,
+                                        overflow: TextOverflow.ellipsis,
+                                      ),
+                                    ],
+                                    
+                                    // Интересы
+                                    if (allInterests.isNotEmpty) ...[
+                                      const SizedBox(height: 12),
+                                      Wrap(
+                                        spacing: 6,
+                                        runSpacing: 6,
+                                        children: allInterests.take(5).map((interest) {
+                                          final isCommon = commonInterests.contains(interest);
+                                          return Container(
+                                            padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+                                            decoration: BoxDecoration(
+                                              color: isCommon ? Colors.white : Colors.white24,
+                                              borderRadius: BorderRadius.circular(12),
+                                            ),
+                                            child: Text(
+                                              interest,
+                                              style: TextStyle(
+                                                color: isCommon ? Colors.pink : Colors.white,
+                                                fontSize: 12,
+                                                fontWeight: isCommon ? FontWeight.bold : FontWeight.normal,
+                                              ),
+                                            ),
+                                          );
+                                        }).toList(),
+                                      ),
+                                    ],
+                                  ],
                                 ),
-                              ],
-                            ),
-                            const SizedBox(height: 20),
-                            Container(
-                              padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
-                              decoration: BoxDecoration(
-                                color: Colors.white24,
-                                borderRadius: BorderRadius.circular(20),
                               ),
-                              child: Row(
-                                mainAxisSize: MainAxisSize.min,
-                                children: [
-                                  const Icon(Icons.favorite, color: Colors.white, size: 20),
-                                  const SizedBox(width: 8),
-                                  Text(
-                                    '$matchPercent% совпадение',
-                                    style: const TextStyle(
-                                      color: Colors.white,
-                                      fontWeight: FontWeight.bold,
-                                      fontSize: 16,
-                                    ),
-                                  ),
-                                ],
-                              ),
-                            ),
-                            const SizedBox(height: 16),
-                            if (profile['bio'] != null && profile['bio'].toString().isNotEmpty)
-                              Text(
-                                profile['bio'],
-                                style: const TextStyle(color: Colors.white, fontSize: 16),
-                                maxLines: 3,
-                              ),
-                            const Spacer(),
-                            const Text('Интересы:', style: TextStyle(color: Colors.white70)),
-                            const SizedBox(height: 8),
-                            Wrap(
-                              spacing: 8,
-                              runSpacing: 8,
-                              children: allInterests.take(6).map((interest) {
-                                final isCommon = commonInterests.contains(interest);
-                                return Container(
-                                  padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
-                                  decoration: BoxDecoration(
-                                    color: isCommon ? Colors.white : Colors.white24,
-                                    borderRadius: BorderRadius.circular(15),
-                                  ),
-                                  child: Text(
-                                    interest,
-                                    style: TextStyle(
-                                      color: isCommon ? Colors.pink : Colors.white,
-                                      fontWeight: isCommon ? FontWeight.bold : FontWeight.normal,
-                                    ),
-                                  ),
-                                );
-                              }).toList(),
                             ),
                           ],
                         ),
                       ),
                     ),
+                    
+                    // LIKE индикатор
                     if (_dragX > 50)
                       Positioned(
                         top: 50,
@@ -403,6 +483,8 @@ Future<void> _like() async {
                           ),
                         ),
                       ),
+                    
+                    // NOPE индикатор
                     if (_dragX < -50)
                       Positioned(
                         top: 50,
@@ -431,7 +513,10 @@ Future<void> _like() async {
               ),
             ),
           ),
+          
           const SizedBox(height: 20),
+          
+          // Кнопки
           Row(
             mainAxisAlignment: MainAxisAlignment.spaceEvenly,
             children: [

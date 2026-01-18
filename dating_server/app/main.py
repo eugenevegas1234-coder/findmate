@@ -1,18 +1,43 @@
-from fastapi import FastAPI, Depends, HTTPException, status
+from fastapi import FastAPI, Depends, HTTPException, WebSocket, WebSocketDisconnect, UploadFile, File
 from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
+from fastapi.middleware.cors import CORSMiddleware
+from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 from typing import Optional
 from datetime import datetime
 import json
+import os
+import uuid
+import aiofiles
 
 app = FastAPI(title="Dating App API")
+
+# CORS
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
+
+# Статические файлы (для фото)
+os.makedirs("uploads/photos", exist_ok=True)
+os.makedirs("uploads/chat", exist_ok=True)
+app.mount("/uploads", StaticFiles(directory="uploads"), name="uploads")
+
 security = HTTPBearer()
 
 # Базы данных (в памяти)
 users_db = {}
-likes_db = {}  # {user_id: [liked_user_ids]}
-matches_db = {}  # {user_id: [matched_user_ids]}
+likes_db = {}
+matches_db = {}
 tokens_db = {}
+messages_db = {}
+
+# WebSocket подключения и статусы
+active_connections = {}
+user_status = {}
 
 # Модели
 class UserRegister(BaseModel):
@@ -35,17 +60,184 @@ class UserUpdate(BaseModel):
     bio: Optional[str] = None
     interests: Optional[list[str]] = None
 
-class LikeRequest(BaseModel):
-    target_user_id: int
+class MessageSend(BaseModel):
+    text: str
+    image_url: Optional[str] = None
 
-# Получить текущего пользователя
+class DeleteMessage(BaseModel):
+    message_id: int
+
 def get_current_user(credentials: HTTPAuthorizationCredentials = Depends(security)):
     token = credentials.credentials
     if token not in tokens_db:
         raise HTTPException(status_code=401, detail="Invalid token")
     return tokens_db[token]
 
-# Регистрация
+def get_user_id_from_token(token: str) -> Optional[int]:
+    if token in tokens_db:
+        return tokens_db[token]["id"]
+    return None
+
+def get_chat_id(user1_id: int, user2_id: int) -> str:
+    return f"chat_{min(user1_id, user2_id)}_{max(user1_id, user2_id)}"
+
+async def send_ws_message(user_id: int, message: dict):
+    if user_id in active_connections:
+        try:
+            await active_connections[user_id].send_json(message)
+        except:
+            pass
+
+# ==================== Загрузка файлов ====================
+
+@app.post("/upload/photo")
+async def upload_profile_photo(
+    file: UploadFile = File(...),
+    current_user: dict = Depends(get_current_user)
+):
+    # Проверяем тип файла
+    if not file.content_type.startswith("image/"):
+        raise HTTPException(status_code=400, detail="File must be an image")
+    
+    # Генерируем уникальное имя
+    ext = file.filename.split(".")[-1] if "." in file.filename else "jpg"
+    filename = f"{current_user['id']}_{uuid.uuid4().hex[:8]}.{ext}"
+    filepath = f"uploads/photos/{filename}"
+    
+    # Сохраняем файл
+    async with aiofiles.open(filepath, 'wb') as f:
+        content = await file.read()
+        await f.write(content)
+    
+    # Обновляем профиль пользователя
+    photo_url = f"/uploads/photos/{filename}"
+    users_db[current_user['id']]["photo"] = photo_url
+    
+    # Обновляем токен
+    for token, user in tokens_db.items():
+        if user["id"] == current_user["id"]:
+            tokens_db[token]["photo"] = photo_url
+    
+    return {"photo_url": photo_url}
+
+@app.post("/upload/chat/{user_id}")
+async def upload_chat_photo(
+    user_id: int,
+    file: UploadFile = File(...),
+    current_user: dict = Depends(get_current_user)
+):
+    current_id = current_user["id"]
+    
+    # Проверяем что это матч
+    if user_id not in matches_db.get(current_id, []):
+        raise HTTPException(status_code=403, detail="You can only send photos to matches")
+    
+    # Проверяем тип файла
+    if not file.content_type.startswith("image/"):
+        raise HTTPException(status_code=400, detail="File must be an image")
+    
+    # Генерируем уникальное имя
+    ext = file.filename.split(".")[-1] if "." in file.filename else "jpg"
+    filename = f"{current_id}_{user_id}_{uuid.uuid4().hex[:8]}.{ext}"
+    filepath = f"uploads/chat/{filename}"
+    
+    # Сохраняем файл
+    async with aiofiles.open(filepath, 'wb') as f:
+        content = await file.read()
+        await f.write(content)
+    
+    image_url = f"/uploads/chat/{filename}"
+    return {"image_url": image_url}
+
+# ==================== WebSocket ====================
+
+@app.websocket("/ws/{token}")
+async def websocket_endpoint(websocket: WebSocket, token: str):
+    user_id = get_user_id_from_token(token)
+    if not user_id:
+        await websocket.close(code=4001)
+        return
+    
+    await websocket.accept()
+    active_connections[user_id] = websocket
+    user_status[user_id] = {"online": True, "last_seen": datetime.now().isoformat()}
+    
+    for match_id in matches_db.get(user_id, []):
+        await send_ws_message(match_id, {"type": "user_status", "user_id": user_id, "online": True})
+    
+    try:
+        while True:
+            data = await websocket.receive_json()
+            
+            if data["type"] == "message":
+                receiver_id = data["receiver_id"]
+                text = data.get("text", "")
+                image_url = data.get("image_url")
+                
+                chat_id = get_chat_id(user_id, receiver_id)
+                
+                if chat_id not in messages_db:
+                    messages_db[chat_id] = []
+                
+                new_message = {
+                    "id": len(messages_db[chat_id]) + 1,
+                    "sender_id": user_id,
+                    "receiver_id": receiver_id,
+                    "text": text,
+                    "image_url": image_url,
+                    "timestamp": datetime.now().isoformat(),
+                    "is_read": False,
+                    "deleted": False
+                }
+                messages_db[chat_id].append(new_message)
+                
+                await send_ws_message(receiver_id, {"type": "new_message", "message": new_message})
+                await send_ws_message(user_id, {"type": "message_sent", "message": new_message})
+            
+            elif data["type"] == "typing":
+                await send_ws_message(data["receiver_id"], {"type": "typing", "user_id": user_id, "is_typing": data["is_typing"]})
+            
+            elif data["type"] == "read":
+                sender_id = data["sender_id"]
+                chat_id = get_chat_id(user_id, sender_id)
+                for msg in messages_db.get(chat_id, []):
+                    if msg["receiver_id"] == user_id:
+                        msg["is_read"] = True
+                await send_ws_message(sender_id, {"type": "messages_read", "reader_id": user_id})
+            
+            elif data["type"] == "delete_message":
+                message_id = data["message_id"]
+                partner_id = data["partner_id"]
+                chat_id = get_chat_id(user_id, partner_id)
+                
+                for msg in messages_db.get(chat_id, []):
+                    if msg["id"] == message_id and msg["sender_id"] == user_id:
+                        msg["deleted"] = True
+                        msg["text"] = ""
+                        msg["image_url"] = None
+                        
+                        # Уведомляем обоих
+                        await send_ws_message(partner_id, {"type": "message_deleted", "message_id": message_id, "chat_id": chat_id})
+                        await send_ws_message(user_id, {"type": "message_deleted", "message_id": message_id, "chat_id": chat_id})
+                        break
+    
+    except WebSocketDisconnect:
+        pass
+    finally:
+        if user_id in active_connections:
+            del active_connections[user_id]
+        user_status[user_id] = {"online": False, "last_seen": datetime.now().isoformat()}
+        for match_id in matches_db.get(user_id, []):
+            await send_ws_message(match_id, {"type": "user_status", "user_id": user_id, "online": False, "last_seen": user_status[user_id]["last_seen"]})
+
+# ==================== Статус ====================
+
+@app.get("/user/{user_id}/status")
+def get_user_status_endpoint(user_id: int, current_user: dict = Depends(get_current_user)):
+    return user_status.get(user_id, {"online": False, "last_seen": None})
+
+# ==================== Регистрация/Вход ====================
+
 @app.post("/register")
 def register(user: UserRegister):
     if user.email in [u["email"] for u in users_db.values()]:
@@ -53,27 +245,18 @@ def register(user: UserRegister):
     
     user_id = len(users_db) + 1
     users_db[user_id] = {
-        "id": user_id,
-        "email": user.email,
-        "password": user.password,
-        "name": user.name,
-        "age": user.age,
-        "city": user.city,
-        "bio": user.bio,
-        "interests": user.interests,
+        "id": user_id, "email": user.email, "password": user.password,
+        "name": user.name, "age": user.age, "city": user.city,
+        "bio": user.bio, "interests": user.interests, "photo": None,
         "created_at": datetime.now().isoformat()
     }
-    
-    # Инициализируем лайки и матчи
     likes_db[user_id] = []
     matches_db[user_id] = []
     
     token = f"token_{user_id}_{datetime.now().timestamp()}"
     tokens_db[token] = users_db[user_id]
-    
     return {"token": token, "user": users_db[user_id]}
 
-# Вход
 @app.post("/login")
 def login(user: UserLogin):
     for u in users_db.values():
@@ -83,16 +266,15 @@ def login(user: UserLogin):
             return {"token": token, "user": u}
     raise HTTPException(status_code=401, detail="Invalid email or password")
 
-# Профиль
+# ==================== Профиль ====================
+
 @app.get("/profile")
 def get_profile(current_user: dict = Depends(get_current_user)):
     return current_user
 
-# Обновить профиль
 @app.put("/profile")
 def update_profile(user_update: UserUpdate, current_user: dict = Depends(get_current_user)):
     user_id = current_user["id"]
-    
     if user_update.name is not None:
         users_db[user_id]["name"] = user_update.name
     if user_update.age is not None:
@@ -104,87 +286,71 @@ def update_profile(user_update: UserUpdate, current_user: dict = Depends(get_cur
     if user_update.interests is not None:
         users_db[user_id]["interests"] = user_update.interests
     
-    tokens_db[list(tokens_db.keys())[list(tokens_db.values()).index(current_user)]] = users_db[user_id]
+    # Обновляем в токенах
+    for token, user in tokens_db.items():
+        if user["id"] == user_id:
+            tokens_db[token] = users_db[user_id]
     
     return users_db[user_id]
 
-# Получить анкеты для просмотра
+# ==================== Анкеты ====================
+
 @app.get("/profiles")
 def get_profiles(current_user: dict = Depends(get_current_user)):
     current_id = current_user["id"]
     my_interests = set(current_user.get("interests", []))
     my_likes = likes_db.get(current_id, [])
-    my_matches = matches_db.get(current_id, [])
     
     profiles = []
     for user in users_db.values():
-        # Не показываем себя, уже лайкнутых и матчи
         if user["id"] != current_id and user["id"] not in my_likes:
             user_interests = set(user.get("interests", []))
             common = my_interests & user_interests
-            
             profiles.append({
-                "id": user["id"],
-                "name": user["name"],
-                "age": user.get("age"),
-                "city": user.get("city"),
-                "bio": user.get("bio"),
-                "interests": list(user_interests),
-                "common_interests": list(common),
-                "match_score": len(common)
+                "id": user["id"], "name": user["name"], "age": user.get("age"),
+                "city": user.get("city"), "bio": user.get("bio"),
+                "interests": list(user_interests), "common_interests": list(common),
+                "match_score": len(common), "photo": user.get("photo")
             })
-    
-    # Сортируем по количеству общих интересов
     profiles.sort(key=lambda x: x["match_score"], reverse=True)
     return profiles
 
-# Лайкнуть пользователя
+# ==================== Лайки ====================
+
 @app.post("/like/{user_id}")
-def like_user(user_id: int, current_user: dict = Depends(get_current_user)):
+async def like_user(user_id: int, current_user: dict = Depends(get_current_user)):
     current_id = current_user["id"]
-    
     if user_id not in users_db:
         raise HTTPException(status_code=404, detail="User not found")
-    
     if user_id == current_id:
         raise HTTPException(status_code=400, detail="Cannot like yourself")
     
-    # Добавляем лайк
     if current_id not in likes_db:
         likes_db[current_id] = []
-    
     if user_id not in likes_db[current_id]:
         likes_db[current_id].append(user_id)
     
-    # Проверяем взаимный лайк
     is_match = False
     if user_id in likes_db and current_id in likes_db[user_id]:
-        # ЭТО МАТЧ!
         is_match = True
-        
-        # Добавляем в матчи обоим
         if current_id not in matches_db:
             matches_db[current_id] = []
         if user_id not in matches_db:
             matches_db[user_id] = []
-        
         if user_id not in matches_db[current_id]:
             matches_db[current_id].append(user_id)
         if current_id not in matches_db[user_id]:
             matches_db[user_id].append(current_id)
+        await send_ws_message(user_id, {"type": "new_match", "user": {"id": current_id, "name": current_user["name"], "photo": current_user.get("photo")}})
     
-    return {
-        "status": "liked",
-        "is_match": is_match,
-        "matched_user": users_db[user_id] if is_match else None
-    }
+    return {"status": "liked", "is_match": is_match, "matched_user": users_db[user_id] if is_match else None}
 
-# Пропустить пользователя
 @app.post("/skip/{user_id}")
 def skip_user(user_id: int, current_user: dict = Depends(get_current_user)):
     return {"status": "skipped"}
 
-# Получить список матчей
+# ==================== Матчи ====================
+
 @app.get("/matches")
 def get_matches(current_user: dict = Depends(get_current_user)):
     current_id = current_user["id"]
@@ -194,18 +360,91 @@ def get_matches(current_user: dict = Depends(get_current_user)):
     for match_id in my_matches:
         if match_id in users_db:
             user = users_db[match_id]
+            chat_id = get_chat_id(current_id, match_id)
+            chat_messages = [m for m in messages_db.get(chat_id, []) if not m.get("deleted")]
+            last_message = chat_messages[-1] if chat_messages else None
+            status = user_status.get(match_id, {"online": False, "last_seen": None})
             matches.append({
-                "id": user["id"],
-                "name": user["name"],
-                "age": user.get("age"),
-                "city": user.get("city"),
-                "bio": user.get("bio"),
-                "interests": user.get("interests", [])
+                "id": user["id"], "name": user["name"], "age": user.get("age"),
+                "city": user.get("city"), "bio": user.get("bio"),
+                "interests": user.get("interests", []), "last_message": last_message,
+                "online": status["online"], "last_seen": status.get("last_seen"),
+                "photo": user.get("photo")
             })
-    
     return matches
 
-# Проверить статус
+# ==================== Чат (HTTP) ====================
+
+@app.post("/chat/{user_id}/send")
+def send_message(user_id: int, message: MessageSend, current_user: dict = Depends(get_current_user)):
+    current_id = current_user["id"]
+    if user_id not in matches_db.get(current_id, []):
+        raise HTTPException(status_code=403, detail="You can only chat with matches")
+    
+    chat_id = get_chat_id(current_id, user_id)
+    if chat_id not in messages_db:
+        messages_db[chat_id] = []
+    
+    new_message = {
+        "id": len(messages_db[chat_id]) + 1,
+        "sender_id": current_id, "receiver_id": user_id,
+        "text": message.text, "image_url": message.image_url,
+        "timestamp": datetime.now().isoformat(),
+        "is_read": False, "deleted": False
+    }
+    messages_db[chat_id].append(new_message)
+    return new_message
+
+@app.get("/chat/{user_id}/messages")
+def get_messages(user_id: int, current_user: dict = Depends(get_current_user)):
+    current_id = current_user["id"]
+    if user_id not in matches_db.get(current_id, []):
+        raise HTTPException(status_code=403, detail="You can only chat with matches")
+    
+    chat_id = get_chat_id(current_id, user_id)
+    messages = [m for m in messages_db.get(chat_id, []) if not m.get("deleted")]
+    
+    for msg in messages:
+        if msg["receiver_id"] == current_id:
+            msg["is_read"] = True
+    return messages
+
+@app.delete("/chat/{user_id}/message/{message_id}")
+def delete_message(user_id: int, message_id: int, current_user: dict = Depends(get_current_user)):
+    current_id = current_user["id"]
+    chat_id = get_chat_id(current_id, user_id)
+    
+    for msg in messages_db.get(chat_id, []):
+        if msg["id"] == message_id and msg["sender_id"] == current_id:
+            msg["deleted"] = True
+            msg["text"] = ""
+            msg["image_url"] = None
+            return {"status": "deleted"}
+    
+    raise HTTPException(status_code=404, detail="Message not found")
+
+@app.get("/chats")
+def get_chats(current_user: dict = Depends(get_current_user)):
+    current_id = current_user["id"]
+    my_matches = matches_db.get(current_id, [])
+    
+    chats = []
+    for match_id in my_matches:
+        if match_id in users_db:
+            user = users_db[match_id]
+            chat_id = get_chat_id(current_id, match_id)
+            chat_messages = [m for m in messages_db.get(chat_id, []) if not m.get("deleted")]
+            unread = sum(1 for m in chat_messages if m["receiver_id"] == current_id and not m["is_read"])
+            last_message = chat_messages[-1] if chat_messages else None
+            chats.append({
+                "user_id": user["id"], "user_name": user["name"],
+                "last_message": last_message, "unread_count": unread,
+                "photo": user.get("photo")
+            })
+    
+    chats.sort(key=lambda x: x["last_message"]["timestamp"] if x["last_message"] else "", reverse=True)
+    return chats
+
 @app.get("/")
 def root():
     return {"status": "Dating API is running", "users": len(users_db)}
