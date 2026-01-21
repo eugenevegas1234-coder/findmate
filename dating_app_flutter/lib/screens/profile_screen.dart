@@ -1,7 +1,7 @@
 import 'package:flutter/material.dart';
-import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:image_picker/image_picker.dart';
 import '../services/api_service.dart';
+import '../services/location_service.dart';
 
 class ProfileScreen extends StatefulWidget {
   const ProfileScreen({super.key});
@@ -14,12 +14,16 @@ class _ProfileScreenState extends State<ProfileScreen> {
   Map<String, dynamic> _profile = {};
   bool _isLoading = true;
   bool _isUploading = false;
+  bool _showLocation = true;
+  bool _locationEnabled = false;
+  String? _locationStatus;
   final _picker = ImagePicker();
 
   @override
   void initState() {
     super.initState();
     _loadProfile();
+    _loadLocationSettings();
   }
 
   Future<void> _loadProfile() async {
@@ -28,10 +32,62 @@ class _ProfileScreenState extends State<ProfileScreen> {
       setState(() {
         _profile = profile;
         _isLoading = false;
+        _showLocation = profile['show_location'] ?? true;
       });
     } catch (e) {
       setState(() => _isLoading = false);
     }
+  }
+
+  Future<void> _loadLocationSettings() async {
+    final hasPermission = await locationService.checkAndRequestPermission();
+    setState(() {
+      _locationEnabled = hasPermission;
+      if (hasPermission) {
+        _locationStatus = 'Геолокация включена';
+      } else {
+        _locationStatus = 'Геолокация отключена';
+      }
+    });
+  }
+
+  Future<void> _updateLocation() async {
+    setState(() {
+      _locationStatus = 'Обновление...';
+    });
+
+    final position = await locationService.getCurrentPosition();
+    if (position != null) {
+      await apiService.updateLocation(
+        latitude: position.latitude,
+        longitude: position.longitude,
+        showLocation: _showLocation,
+      );
+      setState(() {
+        _locationEnabled = true;
+        _locationStatus = 'Местоположение обновлено';
+      });
+      
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('Местоположение обновлено'),
+            backgroundColor: Colors.green,
+          ),
+        );
+      }
+    } else {
+      setState(() {
+        _locationStatus = 'Не удалось получить геолокацию';
+      });
+    }
+  }
+
+  Future<void> _toggleShowLocation(bool value) async {
+    setState(() {
+      _showLocation = value;
+    });
+    await apiService.updateLocationPrivacy(value);
   }
 
   Future<void> _pickAndUploadPhoto() async {
@@ -43,14 +99,10 @@ class _ProfileScreenState extends State<ProfileScreen> {
         imageQuality: 85,
       );
 
-      if (pickedFile == null) {
-        print('No image selected');
-        return;
-      }
+      if (pickedFile == null) return;
 
       setState(() => _isUploading = true);
 
-      // Читаем файл как bytes (работает и на веб, и на мобильных)
       final bytes = await pickedFile.readAsBytes();
       final filename = pickedFile.name;
 
@@ -61,21 +113,21 @@ class _ProfileScreenState extends State<ProfileScreen> {
         _isUploading = false;
       });
 
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content: Text('Фото успешно загружено!'),
-          backgroundColor: Colors.green,
-        ),
-      );
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('Фото успешно загружено!'),
+            backgroundColor: Colors.green,
+          ),
+        );
+      }
     } catch (e) {
-      print('Error picking/uploading photo: $e');
       setState(() => _isUploading = false);
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text('Ошибка: $e'),
-          backgroundColor: Colors.red,
-        ),
-      );
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Ошибка: $e'), backgroundColor: Colors.red),
+        );
+      }
     }
   }
 
@@ -147,7 +199,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
       'Игры', 'Кулинария', 'Фотография', 'Танцы', 'Искусство',
       'Технологии', 'Природа', 'Йога', 'Мода', 'Наука'
     ];
-    
+
     List<String> selected = List<String>.from(_profile['interests'] ?? []);
 
     showDialog(
@@ -209,7 +261,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
       padding: const EdgeInsets.all(16),
       child: Column(
         children: [
-          // Аватар с возможностью загрузки фото
+          // Аватар
           GestureDetector(
             onTap: _isUploading ? null : _pickAndUploadPhoto,
             child: Stack(
@@ -236,17 +288,13 @@ class _ProfileScreenState extends State<ProfileScreen> {
                       shape: BoxShape.circle,
                       border: Border.all(color: Colors.white, width: 2),
                     ),
-                    child: const Icon(
-                      Icons.camera_alt,
-                      color: Colors.white,
-                      size: 20,
-                    ),
+                    child: const Icon(Icons.camera_alt, color: Colors.white, size: 20),
                   ),
                 ),
               ],
             ),
           ),
-          
+
           const SizedBox(height: 8),
           Text(
             'Нажмите чтобы изменить фото',
@@ -285,6 +333,93 @@ class _ProfileScreenState extends State<ProfileScreen> {
           ),
 
           const SizedBox(height: 24),
+
+          // Геолокация
+          Card(
+            child: Padding(
+              padding: const EdgeInsets.all(16),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Row(
+                    children: [
+                      Icon(
+                        Icons.location_on,
+                        color: _locationEnabled ? Colors.blue : Colors.grey,
+                      ),
+                      const SizedBox(width: 8),
+                      const Text(
+                        'Геолокация',
+                        style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 12),
+                  
+                  // Статус геолокации
+                  Container(
+                    padding: const EdgeInsets.all(12),
+                    decoration: BoxDecoration(
+                      color: _locationEnabled ? Colors.blue[50] : Colors.grey[100],
+                      borderRadius: BorderRadius.circular(8),
+                    ),
+                    child: Row(
+                      children: [
+                        Icon(
+                          _locationEnabled ? Icons.check_circle : Icons.info_outline,
+                          color: _locationEnabled ? Colors.blue : Colors.grey,
+                          size: 20,
+                        ),
+                        const SizedBox(width: 8),
+                        Expanded(
+                          child: Text(
+                            _locationStatus ?? 'Проверка...',
+                            style: TextStyle(
+                              color: _locationEnabled ? Colors.blue[700] : Colors.grey[700],
+                            ),
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                  
+                  const SizedBox(height: 12),
+                  
+                  // Переключатель показа местоположения
+                  SwitchListTile(
+                    contentPadding: EdgeInsets.zero,
+                    title: const Text('Показывать расстояние'),
+                    subtitle: Text(
+                      _showLocation 
+                          ? 'Другие видят расстояние до вас' 
+                          : 'Ваше местоположение скрыто',
+                      style: TextStyle(fontSize: 12, color: Colors.grey[600]),
+                    ),
+                    value: _showLocation,
+                    onChanged: _toggleShowLocation,
+                    activeColor: Colors.blue,
+                  ),
+                  
+                  const SizedBox(height: 8),
+                  
+                  // Кнопка обновления
+                  SizedBox(
+                    width: double.infinity,
+                    child: OutlinedButton.icon(
+                      onPressed: _updateLocation,
+                      icon: const Icon(Icons.my_location),
+                      label: const Text('Обновить местоположение'),
+                      style: OutlinedButton.styleFrom(
+                        foregroundColor: Colors.blue,
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ),
+
+          const SizedBox(height: 16),
 
           // О себе
           Card(

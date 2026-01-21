@@ -121,6 +121,62 @@ class ApiService {
     return jsonDecode(response.body);
   }
 
+  // ==================== ГЕОЛОКАЦИЯ ====================
+
+  // Обновить геолокацию
+  Future<void> updateLocation({
+    required double latitude,
+    required double longitude,
+    bool showLocation = true,
+  }) async {
+    await http.put(
+      Uri.parse('$baseUrl/location'),
+      headers: _headers,
+      body: jsonEncode({
+        'latitude': latitude,
+        'longitude': longitude,
+        'show_location': showLocation,
+      }),
+    );
+  }
+
+  // Получить настройки геолокации
+  Future<Map<String, dynamic>> getLocationSettings() async {
+    final response = await http.get(
+      Uri.parse('$baseUrl/location/settings'),
+      headers: _headers,
+    );
+    if (response.statusCode == 200) {
+      return jsonDecode(response.body);
+    }
+    return {};
+  }
+
+  // Обновить приватность геолокации
+  Future<void> updateLocationPrivacy(bool showLocation) async {
+    await http.put(
+      Uri.parse('$baseUrl/location/privacy?show_location=$showLocation'),
+      headers: _headers,
+    );
+  }
+
+  // Получить анкеты с фильтром по расстоянию
+  Future<List<dynamic>> getProfiles({double? maxDistance}) async {
+    String url = '$baseUrl/profiles';
+    if (maxDistance != null) {
+      url += '?max_distance=$maxDistance';
+    }
+    
+    final response = await http.get(
+      Uri.parse(url),
+      headers: _headers,
+    );
+    if (response.statusCode == 200) {
+      return jsonDecode(response.body);
+    }
+    return [];
+  }
+
   // ==================== ЗАГРУЗКА ФОТО (WEB) ====================
 
   // Загрузить фото профиля из bytes (для веб)
@@ -130,7 +186,7 @@ class ApiService {
       Uri.parse('$baseUrl/upload/photo'),
     );
     request.headers.addAll(_authHeaders);
-    
+
     // Определяем MIME тип
     String mimeType = 'image/jpeg';
     if (filename.toLowerCase().endsWith('.png')) {
@@ -138,7 +194,7 @@ class ApiService {
     } else if (filename.toLowerCase().endsWith('.gif')) {
       mimeType = 'image/gif';
     }
-    
+
     request.files.add(http.MultipartFile.fromBytes(
       'file',
       bytes,
@@ -163,14 +219,14 @@ class ApiService {
       Uri.parse('$baseUrl/upload/chat/$userId'),
     );
     request.headers.addAll(_authHeaders);
-    
+
     String mimeType = 'image/jpeg';
     if (filename.toLowerCase().endsWith('.png')) {
       mimeType = 'image/png';
     } else if (filename.toLowerCase().endsWith('.gif')) {
       mimeType = 'image/gif';
     }
-    
+
     request.files.add(http.MultipartFile.fromBytes(
       'file',
       bytes,
@@ -186,18 +242,6 @@ class ApiService {
       return data['image_url'];
     }
     throw Exception('Failed to upload chat photo: ${response.body}');
-  }
-
-  // Получить анкеты для просмотра
-  Future<List<dynamic>> getProfiles() async {
-    final response = await http.get(
-      Uri.parse('$baseUrl/profiles'),
-      headers: _headers,
-    );
-    if (response.statusCode == 200) {
-      return jsonDecode(response.body);
-    }
-    return [];
   }
 
   // Лайкнуть пользователя
@@ -248,7 +292,7 @@ class ApiService {
 
   // Отправить сообщение
   Future<Map<String, dynamic>> sendMessage(
-    int userId, 
+    int userId,
     String text, {
     String? imageUrl,
   }) async {
