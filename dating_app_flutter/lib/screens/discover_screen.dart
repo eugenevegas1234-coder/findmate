@@ -19,6 +19,8 @@ class _DiscoverScreenState extends State<DiscoverScreen> {
   double _rotation = 0;
   double? _maxDistance;
 
+  final List<double?> _distanceOptions = [null, 5, 10, 25, 50, 100];
+
   @override
   void initState() {
     super.initState();
@@ -41,10 +43,95 @@ class _DiscoverScreenState extends State<DiscoverScreen> {
     setState(() => _isLoading = true);
     try {
       final profiles = await apiService.getProfiles(maxDistance: _maxDistance);
-      setState(() { _profiles = profiles; _isLoading = false; });
+      setState(() { _profiles = profiles; _currentIndex = 0; _isLoading = false; });
     } catch (e) {
       setState(() => _isLoading = false);
     }
+  }
+
+  void _showFilterDialog() {
+    showModalBottomSheet(
+      context: context,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
+      ),
+      builder: (ctx) => Container(
+        padding: const EdgeInsets.all(20),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Row(
+              mainAxisAlignment: MainAxisAlignment.spaceBetween,
+              children: [
+                const Text(
+                  'Фильтр по расстоянию',
+                  style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold),
+                ),
+                IconButton(
+                  onPressed: () => Navigator.pop(ctx),
+                  icon: const Icon(Icons.close),
+                ),
+              ],
+            ),
+            const SizedBox(height: 10),
+            if (!_locationEnabled)
+              Container(
+                padding: const EdgeInsets.all(12),
+                decoration: BoxDecoration(
+                  color: Colors.orange[50],
+                  borderRadius: BorderRadius.circular(10),
+                ),
+                child: Row(
+                  children: [
+                    Icon(Icons.location_off, color: Colors.orange[700]),
+                    const SizedBox(width: 10),
+                    const Expanded(
+                      child: Text(
+                        'Включите геолокацию для фильтра по расстоянию',
+                        style: TextStyle(fontSize: 13),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            const SizedBox(height: 16),
+            Wrap(
+              spacing: 10,
+              runSpacing: 10,
+              children: _distanceOptions.map((distance) {
+                final isSelected = _maxDistance == distance;
+                final label = distance == null ? 'Все' : '${distance.toInt()} км';
+                return GestureDetector(
+                  onTap: _locationEnabled || distance == null
+                      ? () {
+                          setState(() => _maxDistance = distance);
+                          Navigator.pop(ctx);
+                          _loadProfiles();
+                        }
+                      : null,
+                  child: Container(
+                    padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 12),
+                    decoration: BoxDecoration(
+                      color: isSelected ? Colors.pink : Colors.grey[200],
+                      borderRadius: BorderRadius.circular(25),
+                    ),
+                    child: Text(
+                      label,
+                      style: TextStyle(
+                        color: isSelected ? Colors.white : (_locationEnabled || distance == null ? Colors.black87 : Colors.grey),
+                        fontWeight: isSelected ? FontWeight.bold : FontWeight.normal,
+                      ),
+                    ),
+                  ),
+                );
+              }).toList(),
+            ),
+            const SizedBox(height: 20),
+          ],
+        ),
+      ),
+    );
   }
 
   Future<void> _like() async {
@@ -154,6 +241,11 @@ class _DiscoverScreenState extends State<DiscoverScreen> {
     return '${d.round()} км';
   }
 
+  String _getFilterLabel() {
+    if (_maxDistance == null) return 'Все';
+    return '${_maxDistance!.toInt()} км';
+  }
+
   @override
   Widget build(BuildContext context) {
     if (_isLoading) return const Center(child: CircularProgressIndicator());
@@ -165,11 +257,28 @@ class _DiscoverScreenState extends State<DiscoverScreen> {
           children: [
             const Icon(Icons.people_outline, size: 80, color: Colors.grey),
             const SizedBox(height: 16),
-            const Text('Все просмотрено', style: TextStyle(fontSize: 18, color: Colors.grey)),
+            Text(
+              _maxDistance != null 
+                ? 'Нет людей в радиусе ${_maxDistance!.toInt()} км' 
+                : 'Все просмотрено',
+              style: const TextStyle(fontSize: 18, color: Colors.grey),
+              textAlign: TextAlign.center,
+            ),
             const SizedBox(height: 20),
-            ElevatedButton(
-              onPressed: () { setState(() => _currentIndex = 0); _loadProfiles(); },
-              child: const Text('Обновить'),
+            Row(
+              mainAxisAlignment: MainAxisAlignment.center,
+              children: [
+                ElevatedButton.icon(
+                  onPressed: _showFilterDialog,
+                  icon: const Icon(Icons.tune),
+                  label: Text(_getFilterLabel()),
+                ),
+                const SizedBox(width: 10),
+                ElevatedButton(
+                  onPressed: () { setState(() => _currentIndex = 0); _loadProfiles(); },
+                  child: const Text('Обновить'),
+                ),
+              ],
             ),
           ],
         ),
@@ -189,6 +298,46 @@ class _DiscoverScreenState extends State<DiscoverScreen> {
       padding: const EdgeInsets.all(16),
       child: Column(
         children: [
+          // Filter button row
+          Row(
+            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+            children: [
+              Text(
+                '${_profiles.length - _currentIndex} профилей',
+                style: TextStyle(color: Colors.grey[600], fontSize: 14),
+              ),
+              GestureDetector(
+                onTap: _showFilterDialog,
+                child: Container(
+                  padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+                  decoration: BoxDecoration(
+                    color: _maxDistance != null ? Colors.pink[50] : Colors.grey[200],
+                    borderRadius: BorderRadius.circular(20),
+                    border: _maxDistance != null ? Border.all(color: Colors.pink) : null,
+                  ),
+                  child: Row(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      Icon(
+                        Icons.tune,
+                        size: 18,
+                        color: _maxDistance != null ? Colors.pink : Colors.grey[700],
+                      ),
+                      const SizedBox(width: 4),
+                      Text(
+                        _getFilterLabel(),
+                        style: TextStyle(
+                          color: _maxDistance != null ? Colors.pink : Colors.grey[700],
+                          fontWeight: _maxDistance != null ? FontWeight.bold : FontWeight.normal,
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 10),
           Expanded(
             child: GestureDetector(
               onPanUpdate: _onPanUpdate,
