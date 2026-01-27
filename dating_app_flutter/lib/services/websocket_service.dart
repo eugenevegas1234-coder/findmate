@@ -1,4 +1,4 @@
-import 'dart:async';
+﻿import 'dart:async';
 import 'dart:convert';
 import 'package:web_socket_channel/web_socket_channel.dart';
 
@@ -7,14 +7,12 @@ class WebSocketService {
   String? _token;
   bool _isConnected = false;
 
-  // Контроллеры для разных событий
   final _messageController = StreamController<Map<String, dynamic>>.broadcast();
   final _typingController = StreamController<Map<String, dynamic>>.broadcast();
   final _statusController = StreamController<Map<String, dynamic>>.broadcast();
   final _matchController = StreamController<Map<String, dynamic>>.broadcast();
   final _deleteController = StreamController<Map<String, dynamic>>.broadcast();
 
-  // Стримы для подписки
   Stream<Map<String, dynamic>> get onMessage => _messageController.stream;
   Stream<Map<String, dynamic>> get onTyping => _typingController.stream;
   Stream<Map<String, dynamic>> get onStatus => _statusController.stream;
@@ -23,23 +21,29 @@ class WebSocketService {
 
   bool get isConnected => _isConnected;
 
-  // Подключиться к WebSocket
   void connect(String token) {
-    if (_isConnected) return;
+    // Сначала отключаем старое соединение
+    if (_isConnected || _channel != null) {
+      disconnect();
+    }
 
     _token = token;
 
     try {
       _channel = WebSocketChannel.connect(
-        Uri.parse('ws://localhost:8000/ws/$token'),
+        Uri.parse('ws://192.168.1.104:8000/ws/$token'),
       );
 
       _isConnected = true;
 
       _channel!.stream.listen(
         (data) {
-          final message = jsonDecode(data);
-          _handleMessage(message);
+          try {
+            final message = jsonDecode(data);
+            _handleMessage(message);
+          } catch (e) {
+            print('WebSocket parse error: $e');
+          }
         },
         onError: (error) {
           print('WebSocket error: $error');
@@ -53,14 +57,13 @@ class WebSocketService {
         },
       );
 
-      print('WebSocket connected');
+      print('WebSocket connected with new token');
     } catch (e) {
       print('WebSocket connection error: $e');
       _isConnected = false;
     }
   }
 
-  // Обработка входящих сообщений
   void _handleMessage(Map<String, dynamic> message) {
     final type = message['type'];
 
@@ -84,23 +87,21 @@ class WebSocketService {
         _deleteController.add(message);
         break;
       case 'messages_read':
-        // Можно добавить обработку
         break;
     }
   }
 
-  // Переподключение
   void _reconnect() {
-    if (_token != null) {
+    if (_token != null && !_isConnected) {
       Future.delayed(const Duration(seconds: 3), () {
-        if (!_isConnected) {
+        if (!_isConnected && _token != null) {
+          print('Attempting to reconnect...');
           connect(_token!);
         }
       });
     }
   }
 
-  // Отправить сообщение
   void sendMessage(int receiverId, String text, {String? imageUrl}) {
     if (!_isConnected || _channel == null) return;
 
@@ -112,7 +113,6 @@ class WebSocketService {
     }));
   }
 
-  // Отправить статус "печатает"
   void sendTyping(int receiverId, bool isTyping) {
     if (!_isConnected || _channel == null) return;
 
@@ -123,7 +123,6 @@ class WebSocketService {
     }));
   }
 
-  // Отметить сообщения как прочитанные
   void markAsRead(int senderId) {
     if (!_isConnected || _channel == null) return;
 
@@ -133,7 +132,6 @@ class WebSocketService {
     }));
   }
 
-  // Удалить сообщение
   void deleteMessage(int messageId, int partnerId) {
     if (!_isConnected || _channel == null) return;
 
@@ -144,14 +142,18 @@ class WebSocketService {
     }));
   }
 
-  // Отключиться
   void disconnect() {
+    print('WebSocket disconnecting...');
     _isConnected = false;
-    _channel?.sink.close();
+    _token = null;
+    try {
+      _channel?.sink.close();
+    } catch (e) {
+      print('Error closing WebSocket: $e');
+    }
     _channel = null;
   }
 
-  // Закрыть все стримы
   void dispose() {
     disconnect();
     _messageController.close();
@@ -162,5 +164,4 @@ class WebSocketService {
   }
 }
 
-// Глобальный экземпляр
 final wsService = WebSocketService();

@@ -7,6 +7,7 @@ plugins {
 android {
     namespace = "com.example.dating_app_flutter"
     compileSdk = 36
+    ndkVersion = "27.0.12077973"
 
     compileOptions {
         sourceCompatibility = JavaVersion.VERSION_11
@@ -19,7 +20,7 @@ android {
 
     defaultConfig {
         applicationId = "com.example.dating_app_flutter"
-        minSdk = 24
+        minSdk = 26
         targetSdk = 36
         versionCode = 1
         versionName = "1.0.0"
@@ -35,4 +36,3 @@ android {
 flutter {
     source = "../.."
 }
-

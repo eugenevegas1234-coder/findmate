@@ -5,7 +5,7 @@ import 'package:http_parser/http_parser.dart';
 import 'websocket_service.dart';
 
 class ApiService {
-  static const String baseUrl = 'http://localhost:8000';
+  static const String baseUrl = 'http://192.168.1.104:8000';
 
   String? _token;
 
@@ -123,7 +123,6 @@ class ApiService {
 
   // ==================== ГЕОЛОКАЦИЯ ====================
 
-  // Обновить геолокацию
   Future<void> updateLocation({
     required double latitude,
     required double longitude,
@@ -140,7 +139,6 @@ class ApiService {
     );
   }
 
-  // Получить настройки геолокации
   Future<Map<String, dynamic>> getLocationSettings() async {
     final response = await http.get(
       Uri.parse('$baseUrl/location/settings'),
@@ -152,7 +150,6 @@ class ApiService {
     return {};
   }
 
-  // Обновить приватность геолокации
   Future<void> updateLocationPrivacy(bool showLocation) async {
     await http.put(
       Uri.parse('$baseUrl/location/privacy?show_location=$showLocation'),
@@ -160,7 +157,6 @@ class ApiService {
     );
   }
 
-  // Получить анкеты с фильтром по расстоянию
   Future<List<dynamic>> getProfiles({double? maxDistance}) async {
     String url = '$baseUrl/profiles';
     if (maxDistance != null) {
@@ -177,9 +173,8 @@ class ApiService {
     return [];
   }
 
-  // ==================== ЗАГРУЗКА ФОТО (WEB) ====================
+  // ==================== ЗАГРУЗКА ФОТО ====================
 
-  // Загрузить фото профиля из bytes (для веб)
   Future<String> uploadProfilePhotoBytes(Uint8List bytes, String filename) async {
     var request = http.MultipartRequest(
       'POST',
@@ -187,7 +182,6 @@ class ApiService {
     );
     request.headers.addAll(_authHeaders);
 
-    // Определяем MIME тип
     String mimeType = 'image/jpeg';
     if (filename.toLowerCase().endsWith('.png')) {
       mimeType = 'image/png';
@@ -212,7 +206,6 @@ class ApiService {
     throw Exception('Failed to upload photo: ${response.body}');
   }
 
-  // Загрузить фото в чат из bytes (для веб)
   Future<String> uploadChatPhotoBytes(int userId, Uint8List bytes, String filename) async {
     var request = http.MultipartRequest(
       'POST',
@@ -278,7 +271,6 @@ class ApiService {
 
   // ==================== ЧАТ ====================
 
-  // Получить сообщения с пользователем
   Future<List<dynamic>> getMessages(int userId) async {
     final response = await http.get(
       Uri.parse('$baseUrl/chat/$userId/messages'),
@@ -290,7 +282,6 @@ class ApiService {
     return [];
   }
 
-  // Отправить сообщение
   Future<Map<String, dynamic>> sendMessage(
     int userId,
     String text, {
@@ -310,7 +301,6 @@ class ApiService {
     throw Exception('Failed to send message');
   }
 
-  // Удалить сообщение
   Future<void> deleteMessage(int userId, int messageId) async {
     final response = await http.delete(
       Uri.parse('$baseUrl/chat/$userId/message/$messageId'),
@@ -321,7 +311,6 @@ class ApiService {
     }
   }
 
-  // Получить список диалогов
   Future<List<dynamic>> getChats() async {
     final response = await http.get(
       Uri.parse('$baseUrl/chats'),
@@ -333,7 +322,6 @@ class ApiService {
     return [];
   }
 
-  // Получить статус пользователя
   Future<Map<String, dynamic>> getUserStatus(int userId) async {
     final response = await http.get(
       Uri.parse('$baseUrl/user/$userId/status'),

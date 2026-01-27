@@ -290,11 +290,6 @@ class MainScreenState extends State<MainScreen> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      appBar: AppBar(
-        title: const Text('FindMate'),
-        backgroundColor: Colors.pink,
-        foregroundColor: Colors.white,
-      ),
       body: _buildBody(),
       bottomNavigationBar: NavigationBar(
         selectedIndex: _currentIndex,
@@ -315,7 +310,7 @@ class MainScreenState extends State<MainScreen> {
       case 0:
         return DiscoverScreen(onOpenChat: openChat);
       case 1:
-        return const MatchesScreen();
+        return MatchesScreen(onOpenChat: openChat);
       case 2:
         return const ProfileScreen();
       default:

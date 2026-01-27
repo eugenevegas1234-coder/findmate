@@ -3,7 +3,9 @@ import '../services/api_service.dart';
 import 'chat_screen.dart';
 
 class MatchesScreen extends StatefulWidget {
-  const MatchesScreen({super.key});
+  final Function({required int userId, required String userName, String? userPhoto})? onOpenChat;
+  
+  const MatchesScreen({super.key, this.onOpenChat});
 
   @override
   State<MatchesScreen> createState() => _MatchesScreenState();
@@ -36,16 +38,20 @@ class _MatchesScreenState extends State<MatchesScreen> {
   }
 
   void _openChat(int userId, String userName, String? userPhoto) {
-    Navigator.push(
-      context,
-      MaterialPageRoute(
-        builder: (context) => ChatScreen(
-          userId: userId,
-          userName: userName,
-          userPhoto: userPhoto,
+    if (widget.onOpenChat != null) {
+      widget.onOpenChat!(userId: userId, userName: userName, userPhoto: userPhoto);
+    } else {
+      Navigator.push(
+        context,
+        MaterialPageRoute(
+          builder: (context) => ChatScreen(
+            userId: userId,
+            userName: userName,
+            userPhoto: userPhoto,
+          ),
         ),
-      ),
-    ).then((_) => _loadMatches()); // Обновляем после возврата из чата
+      ).then((_) => _loadMatches());
+    }
   }
 
   @override
@@ -105,7 +111,6 @@ class _MatchesScreenState extends State<MatchesScreen> {
         itemBuilder: (context, index) {
           final match = _matches[index];
           final lastMessage = match['last_message'];
-          // Исправлено: используем 'photo' вместо 'photo_url'
           final hasPhoto = match['photo'] != null;
 
           return Card(
@@ -114,13 +119,13 @@ class _MatchesScreenState extends State<MatchesScreen> {
               onTap: () => _openChat(
                 match['id'],
                 match['name'] ?? 'Пользователь',
-                match['photo'], // Исправлено
+                match['photo'],
               ),
               leading: CircleAvatar(
                 radius: 30,
                 backgroundColor: Colors.pink[100],
                 backgroundImage: hasPhoto
-                    ? NetworkImage(apiService.getFullImageUrl(match['photo'])) // Исправлено
+                    ? NetworkImage(apiService.getFullImageUrl(match['photo']))
                     : null,
                 child: !hasPhoto
                     ? Text(
@@ -137,7 +142,6 @@ class _MatchesScreenState extends State<MatchesScreen> {
                       style: const TextStyle(fontWeight: FontWeight.bold),
                     ),
                   ),
-                  // Индикатор онлайн
                   if (match['online'] == true)
                     Container(
                       width: 10,

@@ -12,6 +12,12 @@
         android:label="FindMate"
         android:name="${applicationName}"
         android:icon="@mipmap/ic_launcher">
+        
+        <!-- Yandex MapKit API Key -->
+        <meta-data
+            android:name="com.yandex.android.mapkit.ApiKey"
+            android:value="1509e1b2-f1a1-4105-b818-5ed32aebe249" />
+        
         <activity
             android:name=".MainActivity"
             android:exported="true"
