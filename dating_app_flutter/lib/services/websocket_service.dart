@@ -1,11 +1,15 @@
 ﻿import 'dart:async';
 import 'dart:convert';
 import 'package:web_socket_channel/web_socket_channel.dart';
+import 'notification_service.dart';
 
 class WebSocketService {
   WebSocketChannel? _channel;
   String? _token;
   bool _isConnected = false;
+  
+  // ID чата, который сейчас открыт (чтобы не показывать уведомления)
+  int? _activeChatUserId;
 
   final _messageController = StreamController<Map<String, dynamic>>.broadcast();
   final _typingController = StreamController<Map<String, dynamic>>.broadcast();
@@ -21,8 +25,12 @@ class WebSocketService {
 
   bool get isConnected => _isConnected;
 
+  // Установить активный чат (когда пользователь в чате)
+  void setActiveChat(int? userId) {
+    _activeChatUserId = userId;
+  }
+
   void connect(String token) {
-    // Сначала отключаем старое соединение
     if (_isConnected || _channel != null) {
       disconnect();
     }
@@ -69,23 +77,52 @@ class WebSocketService {
 
     switch (type) {
       case 'new_message':
-        _messageController.add(message['message']);
+        final msg = message['message'];
+        _messageController.add(msg);
+        
+        // Показываем уведомление, если чат не открыт
+        final senderId = msg['sender_id'];
+        if (senderId != _activeChatUserId) {
+          final senderName = msg['sender_name'] ?? 'Новое сообщение';
+          final text = msg['text'] ?? '';
+          final hasImage = msg['image_url'] != null;
+          
+          notificationService.showMessageNotification(
+            senderName: senderName,
+            message: hasImage && text.isEmpty ? '📷 Фото' : text,
+            senderId: senderId,
+          );
+        }
         break;
+        
       case 'message_sent':
         _messageController.add(message['message']);
         break;
+        
       case 'typing':
         _typingController.add(message);
         break;
+        
       case 'user_status':
         _statusController.add(message);
         break;
+        
       case 'new_match':
         _matchController.add(message);
+        // Показываем уведомление о новом матче
+        final matchedUser = message['user'];
+        if (matchedUser != null) {
+          notificationService.showMatchNotification(
+            userName: matchedUser['name'] ?? 'Кто-то',
+            userId: matchedUser['id'],
+          );
+        }
         break;
+        
       case 'message_deleted':
         _deleteController.add(message);
         break;
+        
       case 'messages_read':
         break;
     }
@@ -146,6 +183,7 @@ class WebSocketService {
     print('WebSocket disconnecting...');
     _isConnected = false;
     _token = null;
+    _activeChatUserId = null;
     try {
       _channel?.sink.close();
     } catch (e) {

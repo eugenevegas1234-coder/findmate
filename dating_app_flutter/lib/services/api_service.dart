@@ -162,7 +162,7 @@ class ApiService {
     if (maxDistance != null) {
       url += '?max_distance=$maxDistance';
     }
-    
+
     final response = await http.get(
       Uri.parse(url),
       headers: _headers,
@@ -331,6 +331,95 @@ class ApiService {
       return jsonDecode(response.body);
     }
     return {'online': false};
+  }
+
+  // ==================== НАСТРОЙКИ ====================
+
+  Future<Map<String, dynamic>> getSettings() async {
+    final response = await http.get(
+      Uri.parse('$baseUrl/settings'),
+      headers: _headers,
+    );
+    if (response.statusCode == 200) {
+      return jsonDecode(response.body);
+    }
+    return {};
+  }
+
+  Future<void> updateSettings(Map<String, dynamic> settings) async {
+    await http.put(
+      Uri.parse('$baseUrl/settings'),
+      headers: _headers,
+      body: jsonEncode(settings),
+    );
+  }
+
+  // ==================== БЛОКИРОВКА ====================
+
+  Future<void> blockUser(int userId) async {
+    final response = await http.post(
+      Uri.parse('$baseUrl/block/$userId'),
+      headers: _headers,
+    );
+    if (response.statusCode != 200) {
+      throw Exception('Failed to block user');
+    }
+  }
+
+  Future<void> unblockUser(int userId) async {
+    final response = await http.delete(
+      Uri.parse('$baseUrl/block/$userId'),
+      headers: _headers,
+    );
+    if (response.statusCode != 200) {
+      throw Exception('Failed to unblock user');
+    }
+  }
+
+  Future<List<dynamic>> getBlockedUsers() async {
+    final response = await http.get(
+      Uri.parse('$baseUrl/blocked'),
+      headers: _headers,
+    );
+    if (response.statusCode == 200) {
+      return jsonDecode(response.body);
+    }
+    return [];
+  }
+
+  // ==================== ЖАЛОБЫ ====================
+
+  Future<void> reportUser({
+    required int userId,
+    required String reason,
+    String? description,
+  }) async {
+    final response = await http.post(
+      Uri.parse('$baseUrl/report'),
+      headers: _headers,
+      body: jsonEncode({
+        'user_id': userId,
+        'reason': reason,
+        'description': description,
+      }),
+    );
+    if (response.statusCode != 200) {
+      throw Exception('Failed to report user');
+    }
+  }
+
+  // ==================== УДАЛЕНИЕ АККАУНТА ====================
+
+  Future<void> deleteAccount() async {
+    final response = await http.delete(
+      Uri.parse('$baseUrl/account'),
+      headers: _headers,
+    );
+    if (response.statusCode == 200) {
+      logout();
+    } else {
+      throw Exception('Failed to delete account');
+    }
   }
 }
 

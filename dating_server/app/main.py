@@ -3,7 +3,7 @@ from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
-from typing import Optional
+from typing import Optional, List
 from datetime import datetime
 import os
 import uuid
@@ -34,6 +34,9 @@ tokens_db = {}
 messages_db = {}
 active_connections = {}
 user_status = {}
+blocks_db = {}  # {user_id: [blocked_user_ids]}
+reports_db = []  # [{reporter_id, reported_id, reason, description, timestamp}]
+settings_db = {}  # {user_id: {settings}}
 
 
 @app.on_event("startup")
@@ -58,8 +61,7 @@ def startup_load_data():
         matches_db[user_id] = match_ids
 
     print(f"Loaded {len(users_db)} users")
-    
-    # Показать пользователей с координатами
+
     for uid, u in users_db.items():
         if u.get('latitude') and u.get('longitude'):
             print(f"  User {uid} ({u['name']}): {u['latitude']}, {u['longitude']}")
@@ -83,7 +85,7 @@ class UserRegister(BaseModel):
     age: Optional[int] = None
     city: Optional[str] = None
     bio: Optional[str] = None
-    interests: list[str] = []
+    interests: List[str] = []
 
 
 class UserLogin(BaseModel):
@@ -96,7 +98,7 @@ class UserUpdate(BaseModel):
     age: Optional[int] = None
     city: Optional[str] = None
     bio: Optional[str] = None
-    interests: Optional[list[str]] = None
+    interests: Optional[List[str]] = None
 
 
 class LocationUpdate(BaseModel):
@@ -108,6 +110,20 @@ class LocationUpdate(BaseModel):
 class MessageSend(BaseModel):
     text: str
     image_url: Optional[str] = None
+
+
+class SettingsUpdate(BaseModel):
+    push_notifications: Optional[bool] = None
+    message_notifications: Optional[bool] = None
+    match_notifications: Optional[bool] = None
+    show_online_status: Optional[bool] = None
+    show_distance: Optional[bool] = None
+
+
+class ReportCreate(BaseModel):
+    user_id: int
+    reason: str
+    description: Optional[str] = None
 
 
 def get_current_user(credentials: HTTPAuthorizationCredentials = Depends(security)):
@@ -127,6 +143,10 @@ def get_chat_id(user1_id: int, user2_id: int) -> str:
     return f"chat_{min(user1_id, user2_id)}_{max(user1_id, user2_id)}"
 
 
+def is_blocked(user_id: int, target_id: int) -> bool:
+    return target_id in blocks_db.get(user_id, [])
+
+
 async def send_ws_message(user_id: int, message: dict):
     if user_id in active_connections:
         try:
@@ -134,6 +154,147 @@ async def send_ws_message(user_id: int, message: dict):
         except:
             pass
 
+
+# ==================== НАСТРОЙКИ ====================
+
+@app.get("/settings")
+def get_settings(current_user: dict = Depends(get_current_user)):
+    user_id = current_user["id"]
+    default_settings = {
+        "push_notifications": True,
+        "message_notifications": True,
+        "match_notifications": True,
+        "show_online_status": True,
+        "show_distance": True,
+    }
+    return settings_db.get(user_id, default_settings)
+
+
+@app.put("/settings")
+def update_settings(settings: SettingsUpdate, current_user: dict = Depends(get_current_user)):
+    user_id = current_user["id"]
+    if user_id not in settings_db:
+        settings_db[user_id] = {
+            "push_notifications": True,
+            "message_notifications": True,
+            "match_notifications": True,
+            "show_online_status": True,
+            "show_distance": True,
+        }
+    
+    if settings.push_notifications is not None:
+        settings_db[user_id]["push_notifications"] = settings.push_notifications
+    if settings.message_notifications is not None:
+        settings_db[user_id]["message_notifications"] = settings.message_notifications
+    if settings.match_notifications is not None:
+        settings_db[user_id]["match_notifications"] = settings.match_notifications
+    if settings.show_online_status is not None:
+        settings_db[user_id]["show_online_status"] = settings.show_online_status
+    if settings.show_distance is not None:
+        settings_db[user_id]["show_distance"] = settings.show_distance
+    
+    return {"status": "ok"}
+
+
+# ==================== БЛОКИРОВКА ====================
+
+@app.post("/block/{user_id}")
+def block_user(user_id: int, current_user: dict = Depends(get_current_user)):
+    current_id = current_user["id"]
+    
+    if user_id == current_id:
+        raise HTTPException(status_code=400, detail="Cannot block yourself")
+    
+    if user_id not in users_db:
+        raise HTTPException(status_code=404, detail="User not found")
+    
+    if current_id not in blocks_db:
+        blocks_db[current_id] = []
+    
+    if user_id in blocks_db[current_id]:
+        raise HTTPException(status_code=400, detail="User already blocked")
+    
+    blocks_db[current_id].append(user_id)
+    return {"status": "ok", "message": "User blocked"}
+
+
+@app.delete("/block/{user_id}")
+def unblock_user(user_id: int, current_user: dict = Depends(get_current_user)):
+    current_id = current_user["id"]
+    
+    if current_id not in blocks_db or user_id not in blocks_db[current_id]:
+        raise HTTPException(status_code=404, detail="Block not found")
+    
+    blocks_db[current_id].remove(user_id)
+    return {"status": "ok", "message": "User unblocked"}
+
+
+@app.get("/blocked")
+def get_blocked_users(current_user: dict = Depends(get_current_user)):
+    current_id = current_user["id"]
+    blocked_ids = blocks_db.get(current_id, [])
+    
+    blocked_users = []
+    for uid in blocked_ids:
+        if uid in users_db:
+            user = users_db[uid]
+            blocked_users.append({
+                "id": user["id"],
+                "name": user["name"],
+                "photo": user.get("photo")
+            })
+    
+    return blocked_users
+
+
+# ==================== ЖАЛОБЫ ====================
+
+@app.post("/report")
+def report_user(report: ReportCreate, current_user: dict = Depends(get_current_user)):
+    current_id = current_user["id"]
+    
+    if report.user_id == current_id:
+        raise HTTPException(status_code=400, detail="Cannot report yourself")
+    
+    if report.user_id not in users_db:
+        raise HTTPException(status_code=404, detail="User not found")
+    
+    reports_db.append({
+        "reporter_id": current_id,
+        "reported_id": report.user_id,
+        "reason": report.reason,
+        "description": report.description,
+        "timestamp": datetime.now().isoformat()
+    })
+    
+    return {"status": "ok", "message": "Report submitted"}
+
+
+# ==================== УДАЛЕНИЕ АККАУНТА ====================
+
+@app.delete("/account")
+def delete_account(current_user: dict = Depends(get_current_user)):
+    current_id = current_user["id"]
+    
+    # Деактивируем пользователя
+    if current_id in users_db:
+        users_db[current_id]["email"] = f"deleted_{current_id}@deleted.com"
+        users_db[current_id]["name"] = "Deleted User"
+        users_db[current_id]["is_active"] = False
+    
+    # Удаляем из блокировок
+    if current_id in blocks_db:
+        del blocks_db[current_id]
+    
+    # Удаляем токены
+    tokens_to_remove = [t for t, u in tokens_db.items() if u["id"] == current_id]
+    for t in tokens_to_remove:
+        del tokens_db[t]
+    
+    return {"status": "ok", "message": "Account deleted"}
+
+
+# ==================== ГЕОЛОКАЦИЯ ====================
 
 @app.put("/location")
 def update_location(location: LocationUpdate, current_user: dict = Depends(get_current_user)):
@@ -282,48 +443,46 @@ def get_profiles(current_user: dict = Depends(get_current_user), max_distance: O
     my_likes = likes_db.get(current_id, [])
     my_lat = current_user.get("latitude")
     my_lon = current_user.get("longitude")
-
-    print(f"=== GET PROFILES ===")
-    print(f"User {current_id}, coords: {my_lat}, {my_lon}")
-    print(f"Total users in DB: {len(users_db)}")
+    my_blocked = blocks_db.get(current_id, [])
 
     profiles = []
     for user in users_db.values():
-        if user["id"] != current_id and user["id"] not in my_likes:
-            user_interests = set(user.get("interests") or [])
-            common = my_interests & user_interests
-            distance = None
-            
-            user_lat = user.get("latitude")
-            user_lon = user.get("longitude")
-            show_loc = user.get("show_location", True)
-            
-            if my_lat and my_lon and user_lat and user_lon and show_loc:
-                distance = calculate_distance(my_lat, my_lon, user_lat, user_lon)
-                if max_distance and distance > max_distance:
-                    continue
-            
-            profiles.append({
-                "id": user["id"], 
-                "name": user["name"], 
-                "age": user.get("age"),
-                "city": user.get("city"), 
-                "bio": user.get("bio"),
-                "interests": list(user_interests), 
-                "common_interests": list(common),
-                "match_score": len(common), 
-                "photo": user.get("photo"),
-                "distance": round(distance, 1) if distance else None,
-                "latitude": user_lat if show_loc else None,
-                "longitude": user_lon if show_loc else None
-            })
-    
-    print(f"Returning {len(profiles)} profiles")
-    for p in profiles:
-        if p.get('latitude'):
-            print(f"  {p['name']}: lat={p['latitude']}, lon={p['longitude']}")
-    print(f"===================")
-    
+        # Пропускаем себя, уже лайкнутых и заблокированных
+        if user["id"] == current_id or user["id"] in my_likes or user["id"] in my_blocked:
+            continue
+        
+        # Пропускаем если нас заблокировал этот пользователь
+        if current_id in blocks_db.get(user["id"], []):
+            continue
+
+        user_interests = set(user.get("interests") or [])
+        common = my_interests & user_interests
+        distance = None
+
+        user_lat = user.get("latitude")
+        user_lon = user.get("longitude")
+        show_loc = user.get("show_location", True)
+
+        if my_lat and my_lon and user_lat and user_lon and show_loc:
+            distance = calculate_distance(my_lat, my_lon, user_lat, user_lon)
+            if max_distance and distance > max_distance:
+                continue
+
+        profiles.append({
+            "id": user["id"],
+            "name": user["name"],
+            "age": user.get("age"),
+            "city": user.get("city"),
+            "bio": user.get("bio"),
+            "interests": list(user_interests),
+            "common_interests": list(common),
+            "match_score": len(common),
+            "photo": user.get("photo"),
+            "distance": round(distance, 1) if distance else None,
+            "latitude": user_lat if show_loc else None,
+            "longitude": user_lon if show_loc else None
+        })
+
     profiles.sort(key=lambda x: x["match_score"], reverse=True)
     return profiles
 
@@ -365,9 +524,14 @@ def get_matches(current_user: dict = Depends(get_current_user)):
     current_id = current_user["id"]
     my_lat = current_user.get("latitude")
     my_lon = current_user.get("longitude")
+    my_blocked = blocks_db.get(current_id, [])
 
     matches = []
     for match_id in matches_db.get(current_id, []):
+        # Пропускаем заблокированных
+        if match_id in my_blocked or current_id in blocks_db.get(match_id, []):
+            continue
+            
         if match_id in users_db:
             user = users_db[match_id]
             chat_id = get_chat_id(current_id, match_id)
@@ -418,11 +582,30 @@ def send_message(user_id: int, message: MessageSend, current_user: dict = Depend
     return new_message
 
 
+@app.delete("/chat/{user_id}/message/{message_id}")
+def delete_message(user_id: int, message_id: int, current_user: dict = Depends(get_current_user)):
+    current_id = current_user["id"]
+    chat_id = get_chat_id(current_id, user_id)
+    
+    for msg in messages_db.get(chat_id, []):
+        if msg["id"] == message_id and msg["sender_id"] == current_id:
+            msg["deleted"] = True
+            return {"status": "ok"}
+    
+    raise HTTPException(status_code=404, detail="Message not found")
+
+
 @app.get("/chats")
 def get_chats(current_user: dict = Depends(get_current_user)):
     current_id = current_user["id"]
+    my_blocked = blocks_db.get(current_id, [])
+    
     chats = []
     for match_id in matches_db.get(current_id, []):
+        # Пропускаем заблокированных
+        if match_id in my_blocked or current_id in blocks_db.get(match_id, []):
+            continue
+            
         if match_id in users_db:
             user = users_db[match_id]
             chat_id = get_chat_id(current_id, match_id)

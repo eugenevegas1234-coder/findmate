@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:image_picker/image_picker.dart';
 import '../services/api_service.dart';
 import '../services/location_service.dart';
+import '../services/theme_service.dart';
 
 class ProfileScreen extends StatefulWidget {
   const ProfileScreen({super.key});
@@ -67,7 +68,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
         _locationEnabled = true;
         _locationStatus = 'Местоположение обновлено';
       });
-      
+
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           const SnackBar(
@@ -183,7 +184,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
                 'bio': bioController.text,
               };
               await apiService.updateProfile(data);
-              Navigator.pop(context);
+              if (mounted) Navigator.pop(context);
               _loadProfile();
             },
             child: const Text('Сохранить'),
@@ -238,7 +239,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
             ElevatedButton(
               onPressed: () async {
                 await apiService.updateProfile({'interests': selected});
-                Navigator.pop(context);
+                if (mounted) Navigator.pop(context);
                 _loadProfile();
               },
               child: const Text('Сохранить'),
@@ -251,6 +252,8 @@ class _ProfileScreenState extends State<ProfileScreen> {
 
   @override
   Widget build(BuildContext context) {
+    final isDark = Theme.of(context).brightness == Brightness.dark;
+    
     if (_isLoading) {
       return const Center(child: CircularProgressIndicator());
     }
@@ -332,7 +335,33 @@ class _ProfileScreenState extends State<ProfileScreen> {
             ),
           ),
 
-          const SizedBox(height: 24),
+          const SizedBox(height: 16),
+
+          // Переключатель темы
+          Card(
+            child: ListTile(
+              leading: Icon(
+                isDark ? Icons.dark_mode : Icons.light_mode,
+                color: Colors.orange,
+              ),
+              title: const Text('Тёмная тема'),
+              subtitle: Text(
+                isDark ? 'Включена' : 'Выключена',
+                style: TextStyle(fontSize: 12, color: Colors.grey[600]),
+              ),
+              trailing: Switch(
+                value: isDark,
+                onChanged: (value) {
+                  themeService.setThemeMode(
+                    value ? ThemeMode.dark : ThemeMode.light,
+                  );
+                },
+                activeColor: Colors.orange,
+              ),
+            ),
+          ),
+
+          const SizedBox(height: 16),
 
           // Геолокация
           Card(
@@ -355,12 +384,14 @@ class _ProfileScreenState extends State<ProfileScreen> {
                     ],
                   ),
                   const SizedBox(height: 12),
-                  
+
                   // Статус геолокации
                   Container(
                     padding: const EdgeInsets.all(12),
                     decoration: BoxDecoration(
-                      color: _locationEnabled ? Colors.blue[50] : Colors.grey[100],
+                      color: _locationEnabled 
+                          ? (isDark ? Colors.blue[900] : Colors.blue[50])
+                          : (isDark ? Colors.grey[800] : Colors.grey[100]),
                       borderRadius: BorderRadius.circular(8),
                     ),
                     child: Row(
@@ -375,23 +406,25 @@ class _ProfileScreenState extends State<ProfileScreen> {
                           child: Text(
                             _locationStatus ?? 'Проверка...',
                             style: TextStyle(
-                              color: _locationEnabled ? Colors.blue[700] : Colors.grey[700],
+                              color: _locationEnabled 
+                                  ? (isDark ? Colors.blue[200] : Colors.blue[700])
+                                  : Colors.grey,
                             ),
                           ),
                         ),
                       ],
                     ),
                   ),
-                  
+
                   const SizedBox(height: 12),
-                  
+
                   // Переключатель показа местоположения
                   SwitchListTile(
                     contentPadding: EdgeInsets.zero,
                     title: const Text('Показывать расстояние'),
                     subtitle: Text(
-                      _showLocation 
-                          ? 'Другие видят расстояние до вас' 
+                      _showLocation
+                          ? 'Другие видят расстояние до вас'
                           : 'Ваше местоположение скрыто',
                       style: TextStyle(fontSize: 12, color: Colors.grey[600]),
                     ),
@@ -399,9 +432,9 @@ class _ProfileScreenState extends State<ProfileScreen> {
                     onChanged: _toggleShowLocation,
                     activeColor: Colors.blue,
                   ),
-                  
+
                   const SizedBox(height: 8),
-                  
+
                   // Кнопка обновления
                   SizedBox(
                     width: double.infinity,
@@ -433,7 +466,9 @@ class _ProfileScreenState extends State<ProfileScreen> {
                   Text(
                     _profile['bio'] ?? 'Расскажите о себе...',
                     style: TextStyle(
-                      color: _profile['bio'] != null ? Colors.black87 : Colors.grey,
+                      color: _profile['bio'] != null 
+                          ? (isDark ? Colors.white70 : Colors.black87)
+                          : Colors.grey,
                     ),
                   ),
                 ],
@@ -467,8 +502,11 @@ class _ProfileScreenState extends State<ProfileScreen> {
                       runSpacing: 8,
                       children: (_profile['interests'] as List).map((interest) {
                         return Chip(
-                          label: Text(interest),
-                          backgroundColor: Colors.pink[50],
+                          label: Text(
+                            interest,
+                            style: const TextStyle(color: Colors.white),
+                          ),
+                          backgroundColor: Colors.pink,
                         );
                       }).toList(),
                     )
@@ -481,6 +519,23 @@ class _ProfileScreenState extends State<ProfileScreen> {
               ),
             ),
           ),
+
+          const SizedBox(height: 24),
+
+          // Кнопка выхода
+          OutlinedButton.icon(
+            onPressed: () {
+              // TODO: Добавить выход из аккаунта
+            },
+            icon: const Icon(Icons.logout),
+            label: const Text('Выйти из аккаунта'),
+            style: OutlinedButton.styleFrom(
+              foregroundColor: Colors.red,
+              minimumSize: const Size(double.infinity, 48),
+            ),
+          ),
+
+          const SizedBox(height: 16),
         ],
       ),
     );

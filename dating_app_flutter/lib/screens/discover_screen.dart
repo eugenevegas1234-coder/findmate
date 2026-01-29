@@ -1,6 +1,8 @@
 ﻿import 'package:flutter/material.dart';
 import '../services/api_service.dart';
 import '../services/location_service.dart';
+import '../utils/page_transitions.dart';
+import 'user_profile_screen.dart';
 
 class DiscoverScreen extends StatefulWidget {
   final Function({required int userId, required String userName, String? userPhoto})? onOpenChat;
@@ -62,9 +64,25 @@ class _DiscoverScreenState extends State<DiscoverScreen> {
     }
   }
 
+  void _openUserProfile(Map<String, dynamic> profile) {
+    Navigator.push(
+      context,
+      SlideUpRoute(
+        page: UserProfileScreen(
+          user: profile,
+          onLike: _like,
+          onDislike: _skip,
+        ),
+      ),
+    );
+  }
+
   void _showFilterDialog() {
+    final isDark = Theme.of(context).brightness == Brightness.dark;
+    
     showModalBottomSheet(
       context: context,
+      backgroundColor: isDark ? Colors.grey[900] : Colors.white,
       shape: const RoundedRectangleBorder(
         borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
       ),
@@ -90,7 +108,7 @@ class _DiscoverScreenState extends State<DiscoverScreen> {
               Container(
                 padding: const EdgeInsets.all(12),
                 decoration: BoxDecoration(
-                  color: Colors.orange[50],
+                  color: isDark ? Colors.orange[900] : Colors.orange[50],
                   borderRadius: BorderRadius.circular(10),
                 ),
                 child: Row(
@@ -119,15 +137,18 @@ class _DiscoverScreenState extends State<DiscoverScreen> {
                           _loadProfiles();
                         }
                       : null,
-                  child: Container(
+                  child: AnimatedContainer(
+                    duration: const Duration(milliseconds: 200),
                     padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 12),
                     decoration: BoxDecoration(
-                      color: isSelected ? Colors.pink : Colors.grey[200],
+                      color: isSelected 
+                          ? Colors.pink 
+                          : (isDark ? Colors.grey[800] : Colors.grey[200]),
                       borderRadius: BorderRadius.circular(25),
                     ),
                     child: Text(label,
                         style: TextStyle(
-                          color: isSelected ? Colors.white : Colors.black87,
+                          color: isSelected ? Colors.white : null,
                           fontWeight: isSelected ? FontWeight.bold : FontWeight.normal,
                         )),
                   ),
@@ -283,6 +304,8 @@ class _DiscoverScreenState extends State<DiscoverScreen> {
 
   @override
   Widget build(BuildContext context) {
+    final isDark = Theme.of(context).brightness == Brightness.dark;
+    
     if (_isLoading) return const Center(child: CircularProgressIndicator());
 
     if (_profiles.isEmpty || _currentIndex >= _profiles.length) {
@@ -290,13 +313,15 @@ class _DiscoverScreenState extends State<DiscoverScreen> {
         child: Column(
           mainAxisAlignment: MainAxisAlignment.center,
           children: [
-            const Icon(Icons.people_outline, size: 80, color: Colors.grey),
+            Icon(Icons.people_outline, size: 80, 
+                color: isDark ? Colors.grey[600] : Colors.grey),
             const SizedBox(height: 16),
             Text(
               _maxDistance != null
                   ? 'Нет людей в радиусе ${_maxDistance!.toInt()} км'
                   : 'Анкеты закончились',
-              style: const TextStyle(fontSize: 18, color: Colors.grey),
+              style: TextStyle(fontSize: 18, 
+                  color: isDark ? Colors.grey[400] : Colors.grey),
             ),
             const SizedBox(height: 20),
             ElevatedButton(
@@ -321,6 +346,7 @@ class _DiscoverScreenState extends State<DiscoverScreen> {
       padding: const EdgeInsets.all(16),
       child: Column(
         children: [
+          // Верхняя панель
           Row(
             mainAxisAlignment: MainAxisAlignment.spaceBetween,
             children: [
@@ -331,7 +357,9 @@ class _DiscoverScreenState extends State<DiscoverScreen> {
                 child: Container(
                   padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
                   decoration: BoxDecoration(
-                    color: _maxDistance != null ? Colors.pink[50] : Colors.grey[200],
+                    color: _maxDistance != null 
+                        ? (isDark ? Colors.pink[900] : Colors.pink[50])
+                        : (isDark ? Colors.grey[800] : Colors.grey[200]),
                     borderRadius: BorderRadius.circular(20),
                   ),
                   child: Row(
@@ -350,10 +378,13 @@ class _DiscoverScreenState extends State<DiscoverScreen> {
             ],
           ),
           const SizedBox(height: 10),
+          
+          // Карточка профиля
           Expanded(
             child: GestureDetector(
               onPanUpdate: _onPanUpdate,
               onPanEnd: _onPanEnd,
+              onTap: () => _openUserProfile(Map<String, dynamic>.from(profile)),
               child: AnimatedContainer(
                 duration: const Duration(milliseconds: 100),
                 transform: Matrix4.identity()
@@ -365,7 +396,7 @@ class _DiscoverScreenState extends State<DiscoverScreen> {
                     borderRadius: BorderRadius.circular(20),
                     boxShadow: [
                       BoxShadow(
-                          color: Colors.pink.withOpacity(0.3),
+                          color: Colors.pink.withValues(alpha: 0.3),
                           blurRadius: 20,
                           offset: const Offset(0, 10))
                     ],
@@ -375,20 +406,26 @@ class _DiscoverScreenState extends State<DiscoverScreen> {
                     child: Stack(
                       fit: StackFit.expand,
                       children: [
-                        hasPhoto
-                            ? Image.network(
-                                apiService.getFullImageUrl(profile['photo']),
-                                fit: BoxFit.cover,
-                                errorBuilder: (c, e, s) => Container(
-                                    color: Colors.pink[100],
-                                    child: const Icon(Icons.person,
-                                        size: 100, color: Colors.white)))
-                            : Container(
-                                decoration: const BoxDecoration(
-                                    gradient: LinearGradient(
-                                        colors: [Colors.pink, Colors.deepOrange])),
-                                child: const Icon(Icons.person,
-                                    size: 100, color: Colors.white54)),
+                        // Фото с Hero-анимацией
+                        Hero(
+                          tag: 'user_photo_${profile['id']}',
+                          child: hasPhoto
+                              ? Image.network(
+                                  apiService.getFullImageUrl(profile['photo']),
+                                  fit: BoxFit.cover,
+                                  errorBuilder: (c, e, s) => Container(
+                                      color: Colors.pink[100],
+                                      child: const Icon(Icons.person,
+                                          size: 100, color: Colors.white)))
+                              : Container(
+                                  decoration: const BoxDecoration(
+                                      gradient: LinearGradient(
+                                          colors: [Colors.pink, Colors.deepOrange])),
+                                  child: const Icon(Icons.person,
+                                      size: 100, color: Colors.white54)),
+                        ),
+                        
+                        // Информация внизу
                         Positioned(
                           bottom: 0,
                           left: 0,
@@ -401,32 +438,54 @@ class _DiscoverScreenState extends State<DiscoverScreen> {
                                   end: Alignment.bottomCenter,
                                   colors: [
                                     Colors.transparent,
-                                    Colors.black.withOpacity(0.8)
+                                    Colors.black.withValues(alpha: 0.8)
                                   ]),
                             ),
                             child: Column(
                               crossAxisAlignment: CrossAxisAlignment.start,
                               children: [
-                                Text('$name, $age',
-                                    style: const TextStyle(
-                                        fontSize: 28,
-                                        fontWeight: FontWeight.bold,
-                                        color: Colors.white)),
+                                Row(
+                                  children: [
+                                    Expanded(
+                                      child: Text('$name, $age',
+                                          style: const TextStyle(
+                                              fontSize: 28,
+                                              fontWeight: FontWeight.bold,
+                                              color: Colors.white)),
+                                    ),
+                                    // Кнопка "подробнее"
+                                    Container(
+                                      padding: const EdgeInsets.all(8),
+                                      decoration: BoxDecoration(
+                                        color: Colors.white.withValues(alpha: 0.2),
+                                        shape: BoxShape.circle,
+                                      ),
+                                      child: const Icon(
+                                        Icons.info_outline,
+                                        color: Colors.white,
+                                        size: 20,
+                                      ),
+                                    ),
+                                  ],
+                                ),
                                 if (city != null || distance != null)
-                                  Row(children: [
-                                    const Icon(Icons.location_on,
-                                        size: 16, color: Colors.white70),
-                                    if (city != null)
-                                      Text(' $city',
-                                          style:
-                                              const TextStyle(color: Colors.white70)),
-                                    if (distance != null)
-                                      Text(' • ${_formatDistance(distance)}',
-                                          style:
-                                              const TextStyle(color: Colors.white70)),
-                                  ]),
+                                  Padding(
+                                    padding: const EdgeInsets.only(top: 4),
+                                    child: Row(children: [
+                                      const Icon(Icons.location_on,
+                                          size: 16, color: Colors.white70),
+                                      if (city != null)
+                                        Text(' $city',
+                                            style:
+                                                const TextStyle(color: Colors.white70)),
+                                      if (distance != null)
+                                        Text(' • ${_formatDistance(distance)}',
+                                            style:
+                                                const TextStyle(color: Colors.white70)),
+                                    ]),
+                                  ),
                                 if (interests.isNotEmpty) ...[
-                                  const SizedBox(height: 8),
+                                  const SizedBox(height: 12),
                                   Wrap(
                                       spacing: 6,
                                       runSpacing: 6,
@@ -450,10 +509,21 @@ class _DiscoverScreenState extends State<DiscoverScreen> {
                                         );
                                       }).toList()),
                                 ],
+                                // Подсказка
+                                const SizedBox(height: 8),
+                                Text(
+                                  'Нажмите для подробностей',
+                                  style: TextStyle(
+                                    color: Colors.white.withValues(alpha: 0.5),
+                                    fontSize: 12,
+                                  ),
+                                ),
                               ],
                             ),
                           ),
                         ),
+                        
+                        // LIKE индикатор
                         if (_dragX > 50)
                           Positioned(
                               top: 50,
@@ -468,6 +538,8 @@ class _DiscoverScreenState extends State<DiscoverScreen> {
                                           color: Colors.green,
                                           fontSize: 32,
                                           fontWeight: FontWeight.bold)))),
+                        
+                        // NOPE индикатор
                         if (_dragX < -50)
                           Positioned(
                               top: 50,
@@ -490,40 +562,74 @@ class _DiscoverScreenState extends State<DiscoverScreen> {
             ),
           ),
           const SizedBox(height: 20),
+          
+          // Кнопки действий
           Row(
             mainAxisAlignment: MainAxisAlignment.spaceEvenly,
             children: [
-              GestureDetector(
-                  onTap: _animateAndSkip,
-                  child: Container(
-                      width: 70,
-                      height: 70,
-                      decoration: BoxDecoration(
-                          shape: BoxShape.circle,
-                          color: Colors.white,
-                          boxShadow: [
-                            BoxShadow(
-                                color: Colors.grey.withOpacity(0.3), blurRadius: 10)
-                          ]),
-                      child: const Icon(Icons.close, size: 35, color: Colors.red))),
-              GestureDetector(
-                  onTap: _animateAndLike,
-                  child: Container(
-                      width: 80,
-                      height: 80,
-                      decoration: BoxDecoration(
-                          shape: BoxShape.circle,
-                          gradient: const LinearGradient(
-                              colors: [Colors.pink, Colors.red]),
-                          boxShadow: [
-                            BoxShadow(
-                                color: Colors.pink.withOpacity(0.4), blurRadius: 15)
-                          ]),
-                      child:
-                          const Icon(Icons.favorite, size: 40, color: Colors.white))),
+              // Пропустить
+              _ActionButton(
+                icon: Icons.close,
+                color: Colors.red,
+                onTap: _animateAndSkip,
+              ),
+              // Лайк
+              _ActionButton(
+                icon: Icons.favorite,
+                color: Colors.pink,
+                isMain: true,
+                onTap: _animateAndLike,
+              ),
             ],
           ),
         ],
+      ),
+    );
+  }
+}
+
+class _ActionButton extends StatelessWidget {
+  final IconData icon;
+  final Color color;
+  final bool isMain;
+  final VoidCallback onTap;
+
+  const _ActionButton({
+    required this.icon,
+    required this.color,
+    this.isMain = false,
+    required this.onTap,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final size = isMain ? 80.0 : 70.0;
+    final isDark = Theme.of(context).brightness == Brightness.dark;
+    
+    return GestureDetector(
+      onTap: onTap,
+      child: Container(
+        width: size,
+        height: size,
+        decoration: BoxDecoration(
+          shape: BoxShape.circle,
+          color: isMain ? null : (isDark ? Colors.grey[800] : Colors.white),
+          gradient: isMain
+              ? const LinearGradient(colors: [Colors.pink, Colors.red])
+              : null,
+          boxShadow: [
+            BoxShadow(
+              color: (isMain ? Colors.pink : Colors.grey).withValues(alpha: 0.3),
+              blurRadius: 15,
+              offset: const Offset(0, 5),
+            ),
+          ],
+        ),
+        child: Icon(
+          icon,
+          size: isMain ? 40 : 35,
+          color: isMain ? Colors.white : color,
+        ),
       ),
     );
   }

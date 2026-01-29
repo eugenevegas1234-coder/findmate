@@ -42,6 +42,8 @@ class _ChatScreenState extends State<ChatScreen> {
   @override
   void initState() {
     super.initState();
+    // Сообщаем, что этот чат активен (не показывать уведомления)
+    wsService.setActiveChat(widget.userId);
     _loadMessages();
     _loadMyProfile();
     _loadPartnerStatus();
@@ -189,7 +191,6 @@ class _ChatScreenState extends State<ChatScreen> {
     }
   }
 
-  // Выбор и отправка фото
   Future<void> _pickAndSendImage() async {
     try {
       final XFile? image = await _picker.pickImage(
@@ -204,11 +205,9 @@ class _ChatScreenState extends State<ChatScreen> {
           _isUploading = true;
         });
 
-        // Читаем как bytes (работает и на веб, и на мобильных)
         final bytes = await image.readAsBytes();
         final filename = image.name;
 
-        // Загружаем фото на сервер
         final imageUrl = await apiService.uploadChatPhotoBytes(
           widget.userId,
           bytes,
@@ -219,7 +218,6 @@ class _ChatScreenState extends State<ChatScreen> {
           _isUploading = false;
         });
 
-        // Отправляем сообщение с фото
         _sendMessage(imageUrl: imageUrl);
       }
     } catch (e) {
@@ -232,7 +230,6 @@ class _ChatScreenState extends State<ChatScreen> {
     }
   }
 
-  // Удаление сообщения
   void _deleteMessage(dynamic message) {
     if (message['sender_id'] != _myUserId) {
       ScaffoldMessenger.of(context).showSnackBar(
@@ -281,7 +278,6 @@ class _ChatScreenState extends State<ChatScreen> {
     }
   }
 
-  // Просмотр фото на весь экран
   void _openFullScreenImage(String imageUrl) {
     Navigator.push(
       context,
@@ -594,6 +590,8 @@ class _ChatScreenState extends State<ChatScreen> {
 
   @override
   void dispose() {
+    // Сообщаем, что чат закрыт
+    wsService.setActiveChat(null);
     _messageController.dispose();
     _scrollController.dispose();
     _messageSubscription?.cancel();

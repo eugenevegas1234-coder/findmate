@@ -1,91 +1,175 @@
 import 'package:flutter/material.dart';
-import 'services/api_service.dart';
+import 'services/notification_service.dart';
+import 'services/theme_service.dart';
+import 'utils/app_theme.dart';
+import 'utils/page_transitions.dart';
 import 'screens/register_screen.dart';
 import 'screens/login_screen.dart';
 import 'screens/profile_screen.dart';
 import 'screens/discover_screen.dart';
 import 'screens/matches_screen.dart';
 import 'screens/chat_screen.dart';
+import 'widgets/notification_banner.dart';
 
 void main() {
   runApp(const MyApp());
 }
 
-class MyApp extends StatelessWidget {
+class MyApp extends StatefulWidget {
   const MyApp({super.key});
+
+  @override
+  State<MyApp> createState() => _MyAppState();
+}
+
+class _MyAppState extends State<MyApp> {
+  @override
+  void initState() {
+    super.initState();
+    themeService.addListener(_onThemeChanged);
+  }
+
+  @override
+  void dispose() {
+    themeService.removeListener(_onThemeChanged);
+    super.dispose();
+  }
+
+  void _onThemeChanged() {
+    setState(() {});
+  }
 
   @override
   Widget build(BuildContext context) {
     return MaterialApp(
       title: 'FindMate',
       debugShowCheckedModeBanner: false,
-      theme: ThemeData(
-        colorScheme: ColorScheme.fromSeed(
-          seedColor: Colors.pink,
-          brightness: Brightness.light,
-        ),
-        useMaterial3: true,
-      ),
+      theme: AppTheme.lightTheme,
+      darkTheme: AppTheme.darkTheme,
+      themeMode: themeService.themeMode,
       home: const WelcomeScreen(),
     );
   }
 }
 
-class WelcomeScreen extends StatelessWidget {
+class WelcomeScreen extends StatefulWidget {
   const WelcomeScreen({super.key});
 
   @override
+  State<WelcomeScreen> createState() => _WelcomeScreenState();
+}
+
+class _WelcomeScreenState extends State<WelcomeScreen>
+    with SingleTickerProviderStateMixin {
+  late AnimationController _controller;
+  late Animation<double> _fadeAnimation;
+  late Animation<double> _scaleAnimation;
+
+  @override
+  void initState() {
+    super.initState();
+    _controller = AnimationController(
+      duration: const Duration(milliseconds: 800),
+      vsync: this,
+    );
+
+    _fadeAnimation = Tween<double>(begin: 0.0, end: 1.0).animate(
+      CurvedAnimation(parent: _controller, curve: Curves.easeOut),
+    );
+
+    _scaleAnimation = Tween<double>(begin: 0.8, end: 1.0).animate(
+      CurvedAnimation(parent: _controller, curve: Curves.easeOutBack),
+    );
+
+    _controller.forward();
+  }
+
+  @override
+  void dispose() {
+    _controller.dispose();
+    super.dispose();
+  }
+
+  @override
   Widget build(BuildContext context) {
+    final isDark = Theme.of(context).brightness == Brightness.dark;
+
     return Scaffold(
       body: SafeArea(
         child: Padding(
           padding: const EdgeInsets.all(24.0),
-          child: Column(
-            mainAxisAlignment: MainAxisAlignment.center,
-            children: [
-              const Icon(Icons.people, size: 120, color: Colors.pink),
-              const SizedBox(height: 32),
-              const Text(
-                'FindMate',
-                style: TextStyle(fontSize: 42, fontWeight: FontWeight.bold),
-              ),
-              const SizedBox(height: 16),
-              Text(
-                'Найди единомышленников',
-                textAlign: TextAlign.center,
-                style: TextStyle(fontSize: 18, color: Colors.grey[600]),
-              ),
-              const SizedBox(height: 48),
-              SizedBox(
-                width: double.infinity,
-                height: 56,
-                child: ElevatedButton(
-                  onPressed: () {
-                    Navigator.push(
-                      context,
-                      MaterialPageRoute(
-                        builder: (context) => const CategorySelectionScreen(),
-                      ),
-                    );
-                  },
-                  style: ElevatedButton.styleFrom(
-                    backgroundColor: Colors.pink,
-                    foregroundColor: Colors.white,
+          child: FadeTransition(
+            opacity: _fadeAnimation,
+            child: ScaleTransition(
+              scale: _scaleAnimation,
+              child: Column(
+                mainAxisAlignment: MainAxisAlignment.center,
+                children: [
+                  // Логотип с градиентом
+                  Container(
+                    padding: const EdgeInsets.all(24),
+                    decoration: BoxDecoration(
+                      gradient: AppTheme.primaryGradient,
+                      shape: BoxShape.circle,
+                      boxShadow: [
+                        BoxShadow(
+                          color: AppTheme.primaryColor.withValues(alpha: 0.4),
+                          blurRadius: 20,
+                          offset: const Offset(0, 10),
+                        ),
+                      ],
+                    ),
+                    child: const Icon(
+                      Icons.diversity_3,
+                      size: 80,
+                      color: Colors.white,
+                    ),
                   ),
-                  child: const Text('Начать', style: TextStyle(fontSize: 18)),
-                ),
+                  const SizedBox(height: 32),
+                  const Text(
+                    'FindMate',
+                    style: TextStyle(
+                      fontSize: 42,
+                      fontWeight: FontWeight.bold,
+                      letterSpacing: 1.5,
+                    ),
+                  ),
+                  const SizedBox(height: 16),
+                  Text(
+                    'Найди единомышленников',
+                    textAlign: TextAlign.center,
+                    style: TextStyle(
+                      fontSize: 18,
+                      color: isDark ? Colors.grey[400] : Colors.grey[600],
+                    ),
+                  ),
+                  const SizedBox(height: 48),
+                  SizedBox(
+                    width: double.infinity,
+                    height: 56,
+                    child: ElevatedButton(
+                      onPressed: () {
+                        Navigator.push(
+                          context,
+                          SlideUpRoute(page: const CategorySelectionScreen()),
+                        );
+                      },
+                      child: const Text('Начать', style: TextStyle(fontSize: 18)),
+                    ),
+                  ),
+                  const SizedBox(height: 16),
+                  TextButton(
+                    onPressed: () {
+                      Navigator.push(
+                        context,
+                        FadeScaleRoute(page: const LoginScreen()),
+                      );
+                    },
+                    child: const Text('Уже есть аккаунт? Войти'),
+                  ),
+                ],
               ),
-              const SizedBox(height: 16),
-              TextButton(
-                onPressed: () {
-                  Navigator.push(
-                    context,
-                    MaterialPageRoute(builder: (context) => const LoginScreen()),
-                  );
-                },
-                child: const Text('Уже есть аккаунт? Войти'),
-              ),
-            ],
+            ),
           ),
         ),
       ),
@@ -145,11 +229,11 @@ class _CategorySelectionScreenState extends State<CategorySelectionScreen> {
 
   @override
   Widget build(BuildContext context) {
+    final isDark = Theme.of(context).brightness == Brightness.dark;
+
     return Scaffold(
       appBar: AppBar(
         title: const Text('Выбери интересы'),
-        backgroundColor: Colors.pink,
-        foregroundColor: Colors.white,
       ),
       body: Column(
         children: [
@@ -157,7 +241,9 @@ class _CategorySelectionScreenState extends State<CategorySelectionScreen> {
             padding: const EdgeInsets.all(16),
             child: Text(
               'Выбери минимум 3 интереса, чтобы найти единомышленников',
-              style: TextStyle(color: Colors.grey[600]),
+              style: TextStyle(
+                color: isDark ? Colors.grey[400] : Colors.grey[600],
+              ),
               textAlign: TextAlign.center,
             ),
           ),
@@ -184,12 +270,22 @@ class _CategorySelectionScreenState extends State<CategorySelectionScreen> {
                       }
                     });
                   },
-                  child: Container(
+                  child: AnimatedContainer(
+                    duration: const Duration(milliseconds: 200),
                     decoration: BoxDecoration(
-                      color: isSelected ? Colors.pink : Colors.grey[200],
-                      borderRadius: BorderRadius.circular(12),
-                      border: isSelected
-                          ? Border.all(color: Colors.pink[700]!, width: 2)
+                      gradient: isSelected ? AppTheme.primaryGradient : null,
+                      color: isSelected
+                          ? null
+                          : (isDark ? Colors.grey[800] : Colors.grey[200]),
+                      borderRadius: BorderRadius.circular(16),
+                      boxShadow: isSelected
+                          ? [
+                              BoxShadow(
+                                color: AppTheme.primaryColor.withValues(alpha: 0.4),
+                                blurRadius: 8,
+                                offset: const Offset(0, 4),
+                              ),
+                            ]
                           : null,
                     ),
                     child: Column(
@@ -198,19 +294,26 @@ class _CategorySelectionScreenState extends State<CategorySelectionScreen> {
                         Icon(
                           category['icon'] as IconData,
                           size: 32,
-                          color: isSelected ? Colors.white : Colors.grey[700],
+                          color: isSelected
+                              ? Colors.white
+                              : (isDark ? Colors.grey[400] : Colors.grey[700]),
                         ),
                         const SizedBox(height: 6),
-                        Text(
-                          category['name']!,
-                          style: TextStyle(
-                            fontSize: 11,
-                            fontWeight: FontWeight.bold,
-                            color: isSelected ? Colors.white : Colors.black87,
+                        Padding(
+                          padding: const EdgeInsets.symmetric(horizontal: 4),
+                          child: Text(
+                            category['name']!,
+                            style: TextStyle(
+                              fontSize: 11,
+                              fontWeight: FontWeight.bold,
+                              color: isSelected
+                                  ? Colors.white
+                                  : (isDark ? Colors.grey[300] : Colors.black87),
+                            ),
+                            textAlign: TextAlign.center,
+                            maxLines: 2,
+                            overflow: TextOverflow.ellipsis,
                           ),
-                          textAlign: TextAlign.center,
-                          maxLines: 2,
-                          overflow: TextOverflow.ellipsis,
                         ),
                       ],
                     ),
@@ -222,10 +325,10 @@ class _CategorySelectionScreenState extends State<CategorySelectionScreen> {
           Container(
             padding: const EdgeInsets.all(16),
             decoration: BoxDecoration(
-              color: Colors.white,
+              color: Theme.of(context).scaffoldBackgroundColor,
               boxShadow: [
                 BoxShadow(
-                  color: Colors.black.withOpacity(0.1),
+                  color: Colors.black.withValues(alpha: 0.1),
                   blurRadius: 10,
                   offset: const Offset(0, -2),
                 ),
@@ -236,8 +339,8 @@ class _CategorySelectionScreenState extends State<CategorySelectionScreen> {
                 onPressed: _selectedCategories.length >= 3
                     ? () => Navigator.push(
                           context,
-                          MaterialPageRoute(
-                            builder: (context) => RegisterScreen(
+                          SlideRightRoute(
+                            page: RegisterScreen(
                               categories: _selectedCategories.toList(),
                             ),
                           ),
@@ -245,9 +348,6 @@ class _CategorySelectionScreenState extends State<CategorySelectionScreen> {
                     : null,
                 style: ElevatedButton.styleFrom(
                   minimumSize: const Size(double.infinity, 56),
-                  backgroundColor: Colors.pink,
-                  foregroundColor: Colors.white,
-                  disabledBackgroundColor: Colors.grey[300],
                 ),
                 child: Text(
                   'Продолжить (${_selectedCategories.length}/3)',
@@ -273,12 +373,59 @@ class MainScreen extends StatefulWidget {
 
 class MainScreenState extends State<MainScreen> {
   int _currentIndex = 0;
+  OverlayEntry? _notificationOverlay;
+
+  @override
+  void initState() {
+    super.initState();
+    _setupNotifications();
+  }
+
+  void _setupNotifications() {
+    notificationService.onNotification = (title, body, {int? userId, String? userName}) {
+      _showNotificationBanner(title, body, userId: userId, userName: userName);
+    };
+  }
+
+  void _showNotificationBanner(String title, String body, {int? userId, String? userName}) {
+    _notificationOverlay?.remove();
+
+    _notificationOverlay = OverlayEntry(
+      builder: (context) => Positioned(
+        top: 0,
+        left: 0,
+        right: 0,
+        child: NotificationBanner(
+          title: title,
+          body: body,
+          onTap: () {
+            if (userId != null && userName != null) {
+              openChat(userId: userId, userName: userName);
+            }
+          },
+          onDismiss: () {
+            _notificationOverlay?.remove();
+            _notificationOverlay = null;
+          },
+        ),
+      ),
+    );
+
+    Overlay.of(context).insert(_notificationOverlay!);
+  }
+
+  @override
+  void dispose() {
+    _notificationOverlay?.remove();
+    notificationService.onNotification = null;
+    super.dispose();
+  }
 
   void openChat({required int userId, required String userName, String? userPhoto}) {
     Navigator.push(
       context,
-      MaterialPageRoute(
-        builder: (context) => ChatScreen(
+      SlideRightRoute(
+        page: ChatScreen(
           userId: userId,
           userName: userName,
           userPhoto: userPhoto,
@@ -290,17 +437,48 @@ class MainScreenState extends State<MainScreen> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      body: _buildBody(),
-      bottomNavigationBar: NavigationBar(
-        selectedIndex: _currentIndex,
-        onDestinationSelected: (index) {
-          setState(() => _currentIndex = index);
+      body: AnimatedSwitcher(
+        duration: const Duration(milliseconds: 300),
+        child: _buildBody(),
+      ),
+      bottomNavigationBar: ValueListenableBuilder<int>(
+        valueListenable: notificationService.unreadCount,
+        builder: (context, unreadCount, child) {
+          return NavigationBar(
+            selectedIndex: _currentIndex,
+            onDestinationSelected: (index) {
+              setState(() => _currentIndex = index);
+              if (index == 1) {
+                notificationService.clearUnread();
+              }
+            },
+            destinations: [
+              const NavigationDestination(
+                icon: Icon(Icons.explore_outlined),
+                selectedIcon: Icon(Icons.explore),
+                label: 'Поиск',
+              ),
+              NavigationDestination(
+                icon: Badge(
+                  isLabelVisible: unreadCount > 0,
+                  label: Text('$unreadCount'),
+                  child: const Icon(Icons.favorite_outline),
+                ),
+                selectedIcon: Badge(
+                  isLabelVisible: unreadCount > 0,
+                  label: Text('$unreadCount'),
+                  child: const Icon(Icons.favorite),
+                ),
+                label: 'Матчи',
+              ),
+              const NavigationDestination(
+                icon: Icon(Icons.person_outline),
+                selectedIcon: Icon(Icons.person),
+                label: 'Профиль',
+              ),
+            ],
+          );
         },
-        destinations: const [
-          NavigationDestination(icon: Icon(Icons.explore), label: 'Поиск'),
-          NavigationDestination(icon: Icon(Icons.favorite), label: 'Матчи'),
-          NavigationDestination(icon: Icon(Icons.person), label: 'Профиль'),
-        ],
       ),
     );
   }
@@ -308,11 +486,11 @@ class MainScreenState extends State<MainScreen> {
   Widget _buildBody() {
     switch (_currentIndex) {
       case 0:
-        return DiscoverScreen(onOpenChat: openChat);
+        return DiscoverScreen(key: const ValueKey('discover'), onOpenChat: openChat);
       case 1:
-        return MatchesScreen(onOpenChat: openChat);
+        return MatchesScreen(key: const ValueKey('matches'), onOpenChat: openChat);
       case 2:
-        return const ProfileScreen();
+        return const ProfileScreen(key: ValueKey('profile'));
       default:
         return const SizedBox();
     }
