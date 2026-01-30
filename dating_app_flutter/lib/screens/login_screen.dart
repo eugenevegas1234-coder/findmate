@@ -27,14 +27,16 @@ class _LoginScreenState extends State<LoginScreen> {
 
     try {
       final result = await apiService.login(
-        email: _emailController.text,
+        email: _emailController.text.trim(),
         password: _passwordController.text,
       );
 
       if (result['token'] != null && mounted) {
-        Navigator.pushReplacement(
+        // Токен уже сохраняется в apiService.login()
+        Navigator.pushAndRemoveUntil(
           context,
           MaterialPageRoute(builder: (context) => MainScreen(token: apiService.getToken())),
+          (route) => false,
         );
       } else {
         setState(() {
@@ -55,6 +57,13 @@ class _LoginScreenState extends State<LoginScreen> {
   }
 
   @override
+  void dispose() {
+    _emailController.dispose();
+    _passwordController.dispose();
+    super.dispose();
+  }
+
+  @override
   Widget build(BuildContext context) {
     return Scaffold(
       appBar: AppBar(
@@ -71,7 +80,7 @@ class _LoginScreenState extends State<LoginScreen> {
               const Icon(
                 Icons.people_outline,
                 size: 80,
-                color: Colors.deepPurple,
+                color: Colors.pink,
               ),
               const SizedBox(height: 24),
               if (_error != null)
@@ -111,12 +120,12 @@ class _LoginScreenState extends State<LoginScreen> {
                 child: ElevatedButton(
                   onPressed: _isLoading ? null : _login,
                   style: ElevatedButton.styleFrom(
-                    backgroundColor: Colors.deepPurple,
+                    backgroundColor: Colors.pink,
                     foregroundColor: Colors.white,
                   ),
                   child: _isLoading
-                    ? const CircularProgressIndicator(color: Colors.white)
-                    : const Text('Войти', style: TextStyle(fontSize: 18)),
+                      ? const CircularProgressIndicator(color: Colors.white)
+                      : const Text('Войти', style: TextStyle(fontSize: 18)),
                 ),
               ),
             ],

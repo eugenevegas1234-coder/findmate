@@ -1,4 +1,6 @@
 import 'package:flutter/material.dart';
+import 'package:shared_preferences/shared_preferences.dart';
+import 'services/api_service.dart';
 import 'services/notification_service.dart';
 import 'services/theme_service.dart';
 import 'utils/app_theme.dart';
@@ -23,10 +25,31 @@ class MyApp extends StatefulWidget {
 }
 
 class _MyAppState extends State<MyApp> {
+  bool _isLoading = true;
+  String? _savedToken;
+
   @override
   void initState() {
     super.initState();
     themeService.addListener(_onThemeChanged);
+    _checkSavedToken();
+  }
+
+  Future<void> _checkSavedToken() async {
+    final prefs = await SharedPreferences.getInstance();
+    final token = prefs.getString('auth_token');
+    
+    if (token != null && token.isNotEmpty) {
+      apiService.setToken(token);
+      setState(() {
+        _savedToken = token;
+        _isLoading = false;
+      });
+    } else {
+      setState(() {
+        _isLoading = false;
+      });
+    }
   }
 
   @override
@@ -41,13 +64,27 @@ class _MyAppState extends State<MyApp> {
 
   @override
   Widget build(BuildContext context) {
+    if (_isLoading) {
+      return MaterialApp(
+        debugShowCheckedModeBanner: false,
+        theme: AppTheme.lightTheme,
+        darkTheme: AppTheme.darkTheme,
+        themeMode: themeService.themeMode,
+        home: const Scaffold(
+          body: Center(child: CircularProgressIndicator()),
+        ),
+      );
+    }
+
     return MaterialApp(
       title: 'FindMate',
       debugShowCheckedModeBanner: false,
       theme: AppTheme.lightTheme,
       darkTheme: AppTheme.darkTheme,
       themeMode: themeService.themeMode,
-      home: const WelcomeScreen(),
+      home: _savedToken != null 
+          ? MainScreen(token: _savedToken!)
+          : const WelcomeScreen(),
     );
   }
 }
@@ -105,7 +142,6 @@ class _WelcomeScreenState extends State<WelcomeScreen>
               child: Column(
                 mainAxisAlignment: MainAxisAlignment.center,
                 children: [
-                  // Логотип с градиентом
                   Container(
                     padding: const EdgeInsets.all(24),
                     decoration: BoxDecoration(
@@ -186,6 +222,9 @@ class CategorySelectionScreen extends StatefulWidget {
 
 class _CategorySelectionScreenState extends State<CategorySelectionScreen> {
   final Set<String> _selectedCategories = {};
+  
+  // Минимум 5 интересов
+  static const int _minInterests = 5;
 
   final List<Map<String, dynamic>> _categories = [
     {'icon': Icons.games, 'name': 'Геймеры'},
@@ -240,7 +279,7 @@ class _CategorySelectionScreenState extends State<CategorySelectionScreen> {
           Padding(
             padding: const EdgeInsets.all(16),
             child: Text(
-              'Выбери минимум 3 интереса, чтобы найти единомышленников',
+              'Выбери минимум $_minInterests интересов, чтобы найти единомышленников',
               style: TextStyle(
                 color: isDark ? Colors.grey[400] : Colors.grey[600],
               ),
@@ -336,7 +375,7 @@ class _CategorySelectionScreenState extends State<CategorySelectionScreen> {
             ),
             child: SafeArea(
               child: ElevatedButton(
-                onPressed: _selectedCategories.length >= 3
+                onPressed: _selectedCategories.length >= _minInterests
                     ? () => Navigator.push(
                           context,
                           SlideRightRoute(
@@ -350,7 +389,7 @@ class _CategorySelectionScreenState extends State<CategorySelectionScreen> {
                   minimumSize: const Size(double.infinity, 56),
                 ),
                 child: Text(
-                  'Продолжить (${_selectedCategories.length}/3)',
+                  'Продолжить (${_selectedCategories.length}/$_minInterests)',
                   style: const TextStyle(fontSize: 16),
                 ),
               ),

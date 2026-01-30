@@ -2,10 +2,11 @@
 import 'dart:typed_data';
 import 'package:http/http.dart' as http;
 import 'package:http_parser/http_parser.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 import 'websocket_service.dart';
 
 class ApiService {
-  static const String baseUrl = 'http://192.168.1.104:8000';
+  static const String baseUrl = 'http://90.156.211.31:8000';
 
   String? _token;
 
@@ -16,6 +17,32 @@ class ApiService {
 
   String getToken() {
     return _token ?? '';
+  }
+
+  // Сохранить токен локально
+  Future<void> saveToken(String token) async {
+    _token = token;
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setString('auth_token', token);
+    wsService.connect(token);
+  }
+
+  // Загрузить токен из локального хранилища
+  Future<String?> loadToken() async {
+    final prefs = await SharedPreferences.getInstance();
+    _token = prefs.getString('auth_token');
+    if (_token != null && _token!.isNotEmpty) {
+      wsService.connect(_token!);
+    }
+    return _token;
+  }
+
+  // Очистить токен
+  Future<void> clearToken() async {
+    _token = null;
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.remove('auth_token');
+    wsService.disconnect();
   }
 
   String getFullImageUrl(String path) {
@@ -49,6 +76,7 @@ class ApiService {
     required String password,
     required String name,
     int? age,
+    String? city,
     String? bio,
     List<String>? interests,
   }) async {
@@ -60,14 +88,14 @@ class ApiService {
         'password': password,
         'name': name,
         'age': age,
+        'city': city,
         'bio': bio,
         'interests': interests ?? [],
       }),
     );
     final data = jsonDecode(response.body);
     if (data['token'] != null) {
-      _token = data['token'];
-      wsService.connect(_token!);
+      await saveToken(data['token']);
     }
     return data;
   }
@@ -87,16 +115,14 @@ class ApiService {
     );
     final data = jsonDecode(response.body);
     if (data['token'] != null) {
-      _token = data['token'];
-      wsService.connect(_token!);
+      await saveToken(data['token']);
     }
     return data;
   }
 
   // Выход
-  void logout() {
-    _token = null;
-    wsService.disconnect();
+  Future<void> logout() async {
+    await clearToken();
   }
 
   // Получить профиль
@@ -416,7 +442,7 @@ class ApiService {
       headers: _headers,
     );
     if (response.statusCode == 200) {
-      logout();
+      await logout();
     } else {
       throw Exception('Failed to delete account');
     }

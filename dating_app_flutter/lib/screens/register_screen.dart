@@ -1,4 +1,5 @@
 ﻿import 'package:flutter/material.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 import '../services/api_service.dart';
 import '../main.dart';
 
@@ -17,10 +18,30 @@ class _RegisterScreenState extends State<RegisterScreen> {
   final _emailController = TextEditingController();
   final _passwordController = TextEditingController();
   final _ageController = TextEditingController();
+  final _cityController = TextEditingController();
   final _bioController = TextEditingController();
 
   bool _isLoading = false;
   String? _error;
+
+  // Популярные города для подсказок
+  final List<String> _popularCities = [
+    'Москва',
+    'Санкт-Петербург',
+    'Новосибирск',
+    'Екатеринбург',
+    'Казань',
+    'Нижний Новгород',
+    'Челябинск',
+    'Самара',
+    'Омск',
+    'Ростов-на-Дону',
+    'Уфа',
+    'Красноярск',
+    'Воронеж',
+    'Пермь',
+    'Волгоград',
+  ];
 
   Future<void> _register() async {
     if (!_formKey.currentState!.validate()) return;
@@ -32,26 +53,30 @@ class _RegisterScreenState extends State<RegisterScreen> {
 
     try {
       final result = await apiService.register(
-        email: _emailController.text,
+        email: _emailController.text.trim(),
         password: _passwordController.text,
-        name: _nameController.text,
+        name: _nameController.text.trim(),
         age: int.tryParse(_ageController.text),
-        bio: _bioController.text,
+        city: _cityController.text.trim(),
+        bio: _bioController.text.trim(),
         interests: widget.categories ?? [],
       );
 
-      // Проверяем token (регистрация успешна если есть token)
       if (result['token'] != null && mounted) {
-        Navigator.pushReplacement(
+        // Сохраняем токен локально
+        final prefs = await SharedPreferences.getInstance();
+        await prefs.setString('auth_token', result['token']);
+        
+        Navigator.pushAndRemoveUntil(
           context,
           MaterialPageRoute(builder: (context) => MainScreen(token: apiService.getToken())),
+          (route) => false,
         );
       } else {
         setState(() {
           _error = result['detail'] ?? 'Ошибка регистрации';
         });
       }
-
     } catch (e) {
       setState(() {
         _error = 'Ошибка подключения к серверу';
@@ -63,6 +88,17 @@ class _RegisterScreenState extends State<RegisterScreen> {
         });
       }
     }
+  }
+
+  @override
+  void dispose() {
+    _nameController.dispose();
+    _emailController.dispose();
+    _passwordController.dispose();
+    _ageController.dispose();
+    _cityController.dispose();
+    _bioController.dispose();
+    super.dispose();
   }
 
   @override
@@ -98,7 +134,7 @@ class _RegisterScreenState extends State<RegisterScreen> {
                   prefixIcon: Icon(Icons.person),
                   border: OutlineInputBorder(),
                 ),
-                validator: (v) => v?.isEmpty ?? true ? 'Введите имя' : null,
+                validator: (v) => v?.trim().isEmpty ?? true ? 'Введите имя' : null,
               ),
               const SizedBox(height: 16),
 
@@ -110,7 +146,11 @@ class _RegisterScreenState extends State<RegisterScreen> {
                   border: OutlineInputBorder(),
                 ),
                 keyboardType: TextInputType.emailAddress,
-                validator: (v) => v?.contains('@') ?? false ? null : 'Введите email',
+                validator: (v) {
+                  if (v == null || v.trim().isEmpty) return 'Введите email';
+                  if (!v.contains('@')) return 'Некорректный email';
+                  return null;
+                },
               ),
               const SizedBox(height: 16),
 
@@ -134,6 +174,48 @@ class _RegisterScreenState extends State<RegisterScreen> {
                   border: OutlineInputBorder(),
                 ),
                 keyboardType: TextInputType.number,
+                validator: (v) {
+                  if (v == null || v.isEmpty) return 'Введите возраст';
+                  final age = int.tryParse(v);
+                  if (age == null || age < 18 || age > 100) {
+                    return 'Возраст от 18 до 100 лет';
+                  }
+                  return null;
+                },
+              ),
+              const SizedBox(height: 16),
+
+              // Поле города с автодополнением
+              Autocomplete<String>(
+                optionsBuilder: (TextEditingValue textEditingValue) {
+                  if (textEditingValue.text.isEmpty) {
+                    return const Iterable<String>.empty();
+                  }
+                  return _popularCities.where((city) =>
+                      city.toLowerCase().contains(textEditingValue.text.toLowerCase()));
+                },
+                onSelected: (String selection) {
+                  _cityController.text = selection;
+                },
+                fieldViewBuilder: (context, controller, focusNode, onFieldSubmitted) {
+                  // Синхронизируем контроллеры
+                  controller.text = _cityController.text;
+                  controller.addListener(() {
+                    _cityController.text = controller.text;
+                  });
+                  
+                  return TextFormField(
+                    controller: controller,
+                    focusNode: focusNode,
+                    decoration: const InputDecoration(
+                      labelText: 'Город',
+                      prefixIcon: Icon(Icons.location_city),
+                      border: OutlineInputBorder(),
+                      hintText: 'Начните вводить название',
+                    ),
+                    validator: (v) => v?.trim().isEmpty ?? true ? 'Введите город' : null,
+                  );
+                },
               ),
               const SizedBox(height: 16),
 
@@ -143,16 +225,32 @@ class _RegisterScreenState extends State<RegisterScreen> {
                   labelText: 'О себе',
                   prefixIcon: Icon(Icons.info),
                   border: OutlineInputBorder(),
+                  hintText: 'Расскажите немного о себе...',
                 ),
                 maxLines: 3,
+                maxLength: 500,
               ),
               const SizedBox(height: 16),
 
-              if (widget.categories != null && widget.categories!.isNotEmpty)
+              // Выбранные интересы
+              if (widget.categories != null && widget.categories!.isNotEmpty) ...[
+                Text(
+                  'Выбранные интересы (${widget.categories!.length}):',
+                  style: const TextStyle(
+                    fontWeight: FontWeight.bold,
+                    fontSize: 14,
+                  ),
+                ),
+                const SizedBox(height: 8),
                 Wrap(
                   spacing: 8,
-                  children: widget.categories!.map((c) => Chip(label: Text(c))).toList(),
+                  runSpacing: 8,
+                  children: widget.categories!.map((c) => Chip(
+                    label: Text(c),
+                    backgroundColor: Colors.pink[50],
+                  )).toList(),
                 ),
+              ],
               const SizedBox(height: 24),
 
               SizedBox(
@@ -164,8 +262,8 @@ class _RegisterScreenState extends State<RegisterScreen> {
                     foregroundColor: Colors.white,
                   ),
                   child: _isLoading
-                    ? const CircularProgressIndicator(color: Colors.white)
-                    : const Text('Зарегистрироваться', style: TextStyle(fontSize: 18)),
+                      ? const CircularProgressIndicator(color: Colors.white)
+                      : const Text('Зарегистрироваться', style: TextStyle(fontSize: 18)),
                 ),
               ),
             ],

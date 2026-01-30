@@ -39,7 +39,7 @@ class WebSocketService {
 
     try {
       _channel = WebSocketChannel.connect(
-        Uri.parse('ws://192.168.1.104:8000/ws/$token'),
+        Uri.parse('ws://90.156.211.31:8000/ws/$token'),
       );
 
       _isConnected = true;
